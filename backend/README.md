@@ -12,7 +12,7 @@ cp .env.example .env
 ## Run
 
 ```bash
-uvicorn hah.main:app --app-dir src --reload
+uvicorn app.main:app --reload
 ```
 
 ## Test

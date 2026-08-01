@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hah.db import Database
+from app.db import Database
 
 
 class HealthyPool:

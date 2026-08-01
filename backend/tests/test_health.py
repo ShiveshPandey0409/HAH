@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from hah.db import Database
-from hah.main import app
+from app.db import Database
+from app.main import app
 
 
 def test_health() -> None:
