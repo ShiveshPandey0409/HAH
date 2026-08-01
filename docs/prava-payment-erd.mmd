@@ -1,0 +1,22 @@
+flowchart LR
+    C["<b>USERS</b><br/>creator + Prava account ref"]
+    T["<b>TASKS</b><br/>total budget"]
+    A["<b>PAYMENT_AUTHORIZATIONS</b><br/>Prava approval + caps"]
+    S["<b>SUBMISSIONS</b><br/>verification passed"]
+    CL["<b>BOUNTY_CLAIMS</b><br/>approved claim"]
+    P["<b>PAYMENTS</b><br/>one idempotent payout"]
+    PA["<b>PAYMENT_ATTEMPTS</b><br/>safe provider retries"]
+    F["<b>USERS</b><br/>freelancer + Prava account ref"]
+
+    C -->|"owns"| T -->|"authorizes"| A --> P
+    S -->|"approved proof"| P
+    CL -->|"exact reward + payee"| P
+    P --> PA
+    P -->|"success marks claim paid"| F
+
+    classDef user fill:#111827,color:#fff,stroke:#111827,stroke-width:2px;
+    classDef work fill:#eef2ff,color:#312e81,stroke:#6366f1,stroke-width:2px;
+    classDef pay fill:#ecfdf5,color:#14532d,stroke:#10b981,stroke-width:2px;
+    class C,F user;
+    class T,S,CL work;
+    class A,P,PA pay;
