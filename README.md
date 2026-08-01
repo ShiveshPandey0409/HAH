@@ -1,7 +1,7 @@
 ## Entire User Journey
 
+```text
 Landing
-
 ├── Brand
 │   ├── Sign up
 │   ├── Create task
@@ -9,7 +9,6 @@ Landing
 │   │   └── Via agent using MCP
 │   ├── Hire
 │   └── Agent pays creator via Prava
-│
 └── Creator
     ├── Sign up
     ├── Connect warm account
@@ -18,3 +17,4 @@ Landing
     ├── Finish task
     ├── Marks done
     └── Get paid
+```
