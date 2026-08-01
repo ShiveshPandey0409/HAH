@@ -1,0 +1,170 @@
+erDiagram
+    USERS {
+        uuid id PK
+        citext email UK
+        boolean can_create_tasks
+        boolean can_work_tasks
+        text prava_account_ref UK
+    }
+
+    SOCIAL_ACCOUNTS {
+        uuid id PK
+        uuid user_id FK
+        social_platform platform
+        citext handle
+        bigint follower_count
+        bigint following_count
+        bigint karma "generated"
+        boolean is_verified
+        jsonb enrichment_data
+    }
+
+    TASKS {
+        uuid id PK
+        uuid creator_id FK
+        text title
+        bigint total_budget_minor
+        char currency
+        task_status status
+        text created_via "manual or mcp"
+        timestamptz deadline_at
+    }
+
+    BOUNTIES {
+        uuid id PK
+        uuid task_id FK
+        social_platform platform
+        bounty_action action
+        bigint reward_minor
+        int slots_total
+        influence_metric influence_metric
+        bigint min_influence
+        bigint max_influence
+        jsonb proof_requirements
+        bounty_status status
+        timestamptz deadline_at
+    }
+
+    BOUNTY_CLAIMS {
+        uuid id PK
+        uuid bounty_id FK
+        uuid freelancer_id FK
+        uuid social_account_id FK
+        social_platform platform
+        claim_status status
+        timestamptz claim_expires_at
+        timestamptz paid_at
+    }
+
+    SUBMISSIONS {
+        uuid id PK
+        uuid claim_id FK
+        int revision
+        verification_method verification_method
+        verification_status verification_status
+        jsonb verification_checks
+        uuid verifier_user_id FK
+    }
+
+    SUBMISSION_PROOFS {
+        uuid id PK
+        uuid submission_id FK
+        text kind "url screenshot image"
+        text external_url
+        text storage_key
+        text sha256
+    }
+
+    PAYMENT_AUTHORIZATIONS {
+        uuid id PK
+        uuid task_id FK
+        uuid creator_id FK
+        text provider_authorization_ref UK
+        authorization_status status
+        bigint per_payment_cap_minor
+        bigint total_cap_minor
+        bigint used_minor
+    }
+
+    PAYMENTS {
+        uuid id PK
+        uuid authorization_id FK
+        uuid task_id FK
+        uuid bounty_id FK
+        uuid claim_id FK_UK
+        uuid submission_id FK_UK
+        uuid payer_user_id FK
+        uuid payee_user_id FK
+        bigint amount_minor
+        payment_status status
+        text idempotency_key UK
+    }
+
+    PAYMENT_ATTEMPTS {
+        bigint id PK
+        uuid payment_id FK
+        int attempt_number
+        text provider_transaction_ref
+        payment_status status
+        jsonb response_data
+    }
+
+    API_CLIENTS {
+        uuid id PK
+        uuid creator_id FK
+        text client_key UK
+        text secret_hash
+        text_array scopes
+    }
+
+    MCP_REQUESTS {
+        uuid id PK
+        uuid api_client_id FK
+        text method
+        text idempotency_key
+        request_status status
+        jsonb request_data
+        jsonb response_data
+    }
+
+    WEBHOOK_ENDPOINTS {
+        uuid id PK
+        uuid creator_id FK
+        text url
+        text secret_hash
+        text_array subscribed_events
+    }
+
+    WEBHOOK_DELIVERIES {
+        uuid id PK
+        uuid endpoint_id FK
+        uuid event_id
+        text event_type
+        uuid entity_id
+        jsonb payload
+        delivery_status status
+        int attempt_count
+    }
+
+    USERS ||--o{ SOCIAL_ACCOUNTS : "freelancer owns"
+    USERS ||--o{ TASKS : "creator posts"
+    TASKS ||--|{ BOUNTIES : "contains subtasks"
+    USERS ||--o{ BOUNTY_CLAIMS : "freelancer claims"
+    SOCIAL_ACCOUNTS ||--o{ BOUNTY_CLAIMS : "proves eligibility"
+    BOUNTIES ||--o{ BOUNTY_CLAIMS : "fills slots"
+    BOUNTY_CLAIMS ||--o{ SUBMISSIONS : "has revisions"
+    SUBMISSIONS ||--|{ SUBMISSION_PROOFS : "includes proof"
+    USERS ||--o{ SUBMISSIONS : "may verify"
+    USERS ||--o{ PAYMENT_AUTHORIZATIONS : "creator approves"
+    TASKS ||--o{ PAYMENT_AUTHORIZATIONS : "funding permission"
+    PAYMENT_AUTHORIZATIONS ||--o{ PAYMENTS : "allows payouts"
+    TASKS ||--o{ PAYMENTS : "pays from"
+    BOUNTIES ||--o{ PAYMENTS : "sets reward"
+    BOUNTY_CLAIMS ||--o| PAYMENTS : "paid once"
+    SUBMISSIONS ||--o| PAYMENTS : "approved proof"
+    USERS ||--o{ PAYMENTS : "payer or payee"
+    PAYMENTS ||--o{ PAYMENT_ATTEMPTS : "retries"
+    USERS ||--o{ API_CLIENTS : "creator owns"
+    API_CLIENTS ||--o{ MCP_REQUESTS : "agent calls"
+    USERS ||--o{ WEBHOOK_ENDPOINTS : "creator owns"
+    WEBHOOK_ENDPOINTS ||--o{ WEBHOOK_DELIVERIES : "receives events"
