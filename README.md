@@ -25,6 +25,7 @@ The implemented backend scope is user creation only. A user can be a task creato
 freelancer, or both. Social account URLs, tasks, verification, and payments come later.
 
 ```bash
+cd backend
 cp .env.example .env
 uv sync --all-groups
 docker compose up -d postgres

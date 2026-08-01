@@ -100,21 +100,22 @@ Do not return internal Prava fields from this endpoint.
 ## Minimal code structure
 
 ```text
-app/
-├── main.py
-├── db/
-│   └── session.py
-├── models/
-│   └── user.py
-├── schemas/
-│   └── user.py
-├── services/
-│   └── users.py
-└── api/v1/routes/
-    └── users.py
-tests/
-├── conftest.py
-└── test_create_user.py
+backend/
+├── app/
+│   ├── main.py
+│   ├── db/
+│   │   └── session.py
+│   ├── models/
+│   │   └── user.py
+│   ├── schemas/
+│   │   └── user.py
+│   ├── services/
+│   │   └── users.py
+│   └── api/v1/routes/
+│       └── users.py
+└── tests/
+    ├── conftest.py
+    └── test_create_user.py
 ```
 
 ## Step-by-step implementation
@@ -122,7 +123,7 @@ tests/
 ### Step 1: Create the FastAPI foundation
 
 1. Add FastAPI, Uvicorn, SQLAlchemy, asyncpg, Pydantic Settings, and Alembic.
-2. Create `app/main.py`.
+2. Create `backend/app/main.py`.
 3. Configure `DATABASE_URL` through environment settings.
 4. Create one SQLAlchemy `AsyncSession` per request.
 5. Add a basic `/health` route.
@@ -131,7 +132,7 @@ Done when FastAPI starts and can connect to PostgreSQL.
 
 ### Step 2: Add the user database mapping
 
-1. Map the existing `users` table in `app/models/user.py`.
+1. Map the existing `users` table in `backend/app/models/user.py`.
 2. Keep PostgreSQL responsible for UUIDs, timestamps, case-insensitive email,
    uniqueness, and the capability check.
 3. Create the initial Alembic migration for `pgcrypto`, `citext`, and the `users`
