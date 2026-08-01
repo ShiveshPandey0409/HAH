@@ -25,6 +25,7 @@ Brands will create tasks an agent using MCP. The agent pays the human through Pr
 
 ## Working rules
 
+- Use FastAPI for the backend.
 - Simplify aggressively.
 - Build only what the request requires.
 - Do not invent requirements, flows, integrations, commands, or code.
