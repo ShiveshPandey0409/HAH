@@ -73,5 +73,7 @@ SELECT * FROM claim_bounty(
 );
 ```
 
-The executable PostgreSQL definition is in `database/schema.sql`, and the
-transactional end-to-end check is in `database/smoke_test.sql`.
+The immutable executable PostgreSQL baseline is in `database/schema.sql`, its
+adoption procedure is in `database/README.md`, and the transactional end-to-end
+check is in `database/smoke_test.sql`. Schema changes after baseline revision
+`20260801_0001` must use new Alembic migrations.

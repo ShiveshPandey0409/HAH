@@ -135,9 +135,9 @@ Done when FastAPI starts and can connect to PostgreSQL.
 1. Map the existing `users` table in `backend/app/models/user.py`.
 2. Keep PostgreSQL responsible for UUIDs, timestamps, case-insensitive email,
    uniqueness, and the capability check.
-3. Create the initial Alembic migration for `pgcrypto`, `citext`, and the `users`
-   table, or extract that part from the existing schema migration.
-4. Run the migration against an empty PostgreSQL database.
+3. Load the authoritative `database/schema.sql` baseline into an empty PostgreSQL
+   database and stamp Alembic revision `20260801_0001`.
+4. Apply only later schema changes through new Alembic migrations.
 
 Done when a user can be inserted directly through SQLAlchemy.
 

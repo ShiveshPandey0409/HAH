@@ -53,7 +53,7 @@ Use `social_accounts`:
 - follower/following and Reddit karma fields store the latest metrics;
 - `is_verified` means the enrichment provider validated that the public profile
   exists; it does not mean OAuth ownership verification;
-- `enrichment_provider`, `enrichment_data`, and `last_enriched_at` record the latest
+- `enrichment_provider`, `enrichment_data`, and `enriched_at` record the latest
   provider result;
 - unique `(user_id, platform)` makes the `PUT` operation an upsert;
 - unique `(platform, profile_url)` prevents the same public profile being assigned

@@ -25,6 +25,10 @@ class User(Base):
             "(prava_account_ref IS NULL) = (prava_account_status IS NULL)",
             name="users_prava_account_pair",
         ),
+        {
+            "comment": "Creator and/or freelancer account, including 1:1 profile "
+            "and Prava account reference."
+        },
     )
 
     id: Mapped[UUID] = mapped_column(

@@ -29,6 +29,9 @@ cd backend
 cp .env.example .env
 uv sync --all-groups
 docker compose up -d postgres
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d hire_human \
+  < ../database/schema.sql
+uv run alembic stamp 20260801_0001
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
@@ -55,5 +58,7 @@ uv run pytest
 ```
 
 API documentation is available at `http://localhost:8000/docs` while the server is running.
+
+See [database/README.md](database/README.md) before initializing or adopting a database.
 
 The separate backend implementation plans are indexed in [plans/README.md](plans/README.md).

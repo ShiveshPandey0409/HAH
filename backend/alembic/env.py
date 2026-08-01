@@ -10,6 +10,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.db.alembic_config import escape_alembic_config_value
 from app.db.base import Base
 from app.models import User  # noqa: F401
 
@@ -19,8 +20,19 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
-config.set_main_option("sqlalchemy.url", database_url)
+config.set_main_option("sqlalchemy.url", escape_alembic_config_value(database_url))
 target_metadata = Base.metadata
+managed_tables = frozenset(target_metadata.tables)
+
+
+def include_object(
+    _: object,
+    name: str | None,
+    type_: str,
+    __: bool,
+    ___: object | None,
+) -> bool:
+    return type_ != "table" or name in managed_tables
 
 
 def run_migrations_offline() -> None:
@@ -30,6 +42,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -37,7 +50,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: object) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
