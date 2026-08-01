@@ -168,6 +168,13 @@ def _strengthen_submission_tables() -> None:
             CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$') NOT VALID
         """
     )
+    for constraint_name in (
+        "submission_proofs_shape_check",
+        "submission_proofs_https_url_check",
+        "submission_proofs_storage_key_nonblank_check",
+        "submission_proofs_sha256_check",
+    ):
+        op.execute(f"ALTER TABLE submission_proofs VALIDATE CONSTRAINT {constraint_name}")
 
 
 def _strengthen_submission_state_machine() -> None:
@@ -671,6 +678,12 @@ def _strengthen_webhook_tables() -> None:
           )) NOT VALID
         """
     )
+    for constraint_name in (
+        "webhook_deliveries_payload_body_size_check",
+        "webhook_deliveries_last_error_size_check",
+        "webhook_deliveries_event_type_check",
+    ):
+        op.execute(f"ALTER TABLE webhook_deliveries VALIDATE CONSTRAINT {constraint_name}")
     op.drop_index("webhook_retry_idx", table_name="webhook_deliveries")
     op.create_index(
         "webhook_due_idx",
