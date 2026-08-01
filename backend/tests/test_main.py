@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
+from httpx import AsyncClient
 
 from app.main import create_app, lifespan
+from app.mcp import auth as mcp_auth
 
 
 def test_application_factory_builds_fresh_mcp_session_manager() -> None:
@@ -16,6 +18,20 @@ def test_application_factory_builds_fresh_mcp_session_manager() -> None:
 
     assert first.state.mcp_server is not second.state.mcp_server
     assert first.state.mcp_server.session_manager is not second.state.mcp_server.session_manager
+
+
+async def test_unknown_paths_return_404_without_mcp_authentication(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authenticate = AsyncMock(side_effect=AssertionError("MCP authentication should not run"))
+    monkeypatch.setattr(mcp_auth, "authenticate_api_token", authenticate)
+
+    for path in ("/", "/favicon.ico", "/v1/nonexistent", "/mcp/nonexistent"):
+        response = await client.get(path)
+        assert response.status_code == 404
+
+    authenticate.assert_not_awaited()
 
 
 async def test_lifespan_disposes_engine_after_application_error() -> None:

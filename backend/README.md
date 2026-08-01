@@ -16,7 +16,7 @@ uv run alembic upgrade head
 ## Run
 
 ```bash
-uv run uvicorn app.main:create_app --factory --reload
+uv run uvicorn app.main:app --reload
 ```
 
 ## Test

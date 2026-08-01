@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Annotated
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver import Context
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -28,7 +27,6 @@ async def create_task(
     total_budget_minor: Annotated[int, Field(gt=0, le=POSTGRES_BIGINT_MAX)],
     currency: str,
     bounties: Annotated[list[BountyCreate], Field(min_length=1)],
-    ctx: Context,
     deadline_at: datetime | None = None,
 ) -> TaskResponse:
     principal = get_current_api_client()

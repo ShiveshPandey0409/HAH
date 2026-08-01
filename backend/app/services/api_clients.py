@@ -4,10 +4,10 @@ import hashlib
 import hmac
 import secrets
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionFactory
@@ -17,6 +17,7 @@ from app.models.user import User
 TASKS_CREATE_SCOPE = "tasks:create"
 SUPPORTED_SCOPES = frozenset({TASKS_CREATE_SCOPE})
 TOKEN_PREFIX = "hah"
+LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 
 class APIClientValidationError(Exception):
@@ -115,8 +116,21 @@ async def authenticate_api_token(token: str) -> APIClientPrincipal:
         ):
             raise InvalidAPIKeyError
 
-        client.last_used_at = datetime.now(UTC)
-        await session.commit()
+        now = datetime.now(UTC)
+        stale_before = now - LAST_USED_WRITE_INTERVAL
+        if client.last_used_at is None or client.last_used_at <= stale_before:
+            await session.execute(
+                update(APIClient)
+                .where(
+                    APIClient.id == client.id,
+                    or_(
+                        APIClient.last_used_at.is_(None),
+                        APIClient.last_used_at <= stale_before,
+                    ),
+                )
+                .values(last_used_at=now)
+            )
+            await session.commit()
         return APIClientPrincipal(
             client_id=client.id,
             creator_id=client.creator_id,

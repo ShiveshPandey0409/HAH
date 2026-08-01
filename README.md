@@ -35,7 +35,7 @@ docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d hire_huma
   < ../database/schema.sql
 uv run alembic stamp 20260801_0001
 uv run alembic upgrade head
-uv run uvicorn app.main:create_app --factory --reload
+uv run uvicorn app.main:app --reload
 ```
 
 Create a user:

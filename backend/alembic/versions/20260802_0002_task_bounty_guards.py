@@ -38,6 +38,82 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        CREATE OR REPLACE FUNCTION validate_creator()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM users
+            WHERE id = NEW.creator_id AND can_create_tasks
+          ) THEN
+            RAISE EXCEPTION USING
+              ERRCODE = 'HTV01',
+              MESSAGE = 'creator must be an active user allowed to create tasks';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION enforce_task_budget()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+          v_task_id uuid;
+          v_budget bigint;
+          v_allocated numeric;
+        BEGIN
+          v_task_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.task_id ELSE NEW.task_id END;
+          SELECT total_budget_minor INTO v_budget FROM tasks WHERE id = v_task_id FOR UPDATE;
+          SELECT COALESCE(sum(reward_minor::numeric * slots_total), 0)
+            INTO v_allocated
+            FROM bounties
+           WHERE task_id = v_task_id
+             AND status <> 'cancelled'
+             AND id <> CASE WHEN TG_OP = 'INSERT' THEN NEW.id ELSE OLD.id END;
+
+          IF TG_OP <> 'DELETE' AND NEW.status <> 'cancelled' THEN
+            v_allocated := v_allocated + NEW.reward_minor::numeric * NEW.slots_total;
+          END IF;
+
+          IF v_allocated > v_budget THEN
+            RAISE EXCEPTION USING
+              ERRCODE = 'HTV02',
+              MESSAGE = format(
+                'bounties allocate %s but task budget is %s', v_allocated, v_budget
+              );
+          END IF;
+          IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION enforce_task_budget_change()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+          v_allocated numeric;
+        BEGIN
+          SELECT COALESCE(sum(reward_minor::numeric * slots_total), 0)
+            INTO v_allocated
+            FROM bounties
+           WHERE task_id = NEW.id AND status <> 'cancelled';
+          IF v_allocated > NEW.total_budget_minor THEN
+            RAISE EXCEPTION USING
+              ERRCODE = 'HTV03',
+              MESSAGE = format(
+                'task budget cannot be lower than allocated bounties (%s)', v_allocated
+              );
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
         CREATE OR REPLACE FUNCTION enforce_bounty_task_deadline()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE
@@ -47,7 +123,9 @@ def upgrade() -> None:
           IF NEW.deadline_at IS NOT NULL
              AND v_task_deadline IS NOT NULL
              AND NEW.deadline_at > v_task_deadline THEN
-            RAISE EXCEPTION 'bounty deadline cannot be after the task deadline';
+            RAISE EXCEPTION USING
+              ERRCODE = 'HTV04',
+              MESSAGE = 'bounty deadline cannot be after the task deadline';
           END IF;
           RETURN NEW;
         END;
@@ -72,7 +150,9 @@ def upgrade() -> None:
                AND deadline_at IS NOT NULL
                AND deadline_at > NEW.deadline_at
           ) THEN
-            RAISE EXCEPTION 'task deadline cannot be before a bounty deadline';
+            RAISE EXCEPTION USING
+              ERRCODE = 'HTV05',
+              MESSAGE = 'task deadline cannot be before a bounty deadline';
           END IF;
           RETURN NEW;
         END;
@@ -95,3 +175,69 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS enforce_bounty_task_deadline()")
     op.execute("ALTER TABLE bounties DROP CONSTRAINT IF EXISTS bounties_proof_requirements_unique")
     op.execute("DROP FUNCTION IF EXISTS hah_jsonb_text_array_is_unique(jsonb)")
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION validate_creator()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM users
+            WHERE id = NEW.creator_id AND can_create_tasks
+          ) THEN
+            RAISE EXCEPTION 'creator must be an active user allowed to create tasks';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION enforce_task_budget()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+          v_task_id uuid;
+          v_budget bigint;
+          v_allocated numeric;
+        BEGIN
+          v_task_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.task_id ELSE NEW.task_id END;
+          SELECT total_budget_minor INTO v_budget FROM tasks WHERE id = v_task_id FOR UPDATE;
+          SELECT COALESCE(sum(reward_minor::numeric * slots_total), 0)
+            INTO v_allocated
+            FROM bounties
+           WHERE task_id = v_task_id
+             AND status <> 'cancelled'
+             AND id <> CASE WHEN TG_OP = 'INSERT' THEN NEW.id ELSE OLD.id END;
+
+          IF TG_OP <> 'DELETE' AND NEW.status <> 'cancelled' THEN
+            v_allocated := v_allocated + NEW.reward_minor::numeric * NEW.slots_total;
+          END IF;
+
+          IF v_allocated > v_budget THEN
+            RAISE EXCEPTION 'bounties allocate % but task budget is %', v_allocated, v_budget;
+          END IF;
+          IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION enforce_task_budget_change()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+          v_allocated numeric;
+        BEGIN
+          SELECT COALESCE(sum(reward_minor::numeric * slots_total), 0)
+            INTO v_allocated
+            FROM bounties
+           WHERE task_id = NEW.id AND status <> 'cancelled';
+          IF v_allocated > NEW.total_budget_minor THEN
+            RAISE EXCEPTION 'task budget cannot be lower than allocated bounties (%)', v_allocated;
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+        """
+    )

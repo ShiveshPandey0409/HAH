@@ -49,6 +49,13 @@ class APIKeyAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # This middleware wraps the MCP sub-application, which is mounted last as
+        # FastAPI's fallback. Only the actual MCP endpoint should trigger API-key
+        # authentication; unrelated unknown paths must retain normal 404 behavior.
+        if scope.get("path") != "/mcp":
+            await self.app(scope, receive, send)
+            return
+
         authorization = Headers(scope=scope).get("authorization", "")
         scheme, separator, credentials = authorization.partition(" ")
         if scheme.lower() != "bearer" or not separator or not credentials.strip():

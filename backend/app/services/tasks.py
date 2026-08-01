@@ -44,7 +44,27 @@ def _sqlstate(error: DBAPIError) -> str | None:
 
 
 def _is_task_rule_violation(error: DBAPIError) -> bool:
-    return _sqlstate(error) in {"22003", "22021", "23503", "23514", "P0001"}
+    return _sqlstate(error) in {
+        "22003",
+        "22021",
+        "23503",
+        "23514",
+        "HTV01",
+        "HTV02",
+        "HTV03",
+        "HTV04",
+        "HTV05",
+    }
+
+
+def _task_rule_message(error: DBAPIError) -> str:
+    return {
+        "HTV01": "creator is not allowed to create tasks",
+        "HTV02": "bounties exceed the task budget",
+        "HTV03": "task budget is lower than its allocated bounties",
+        "HTV04": "bounty deadline cannot be after the task deadline",
+        "HTV05": "task deadline cannot be before a bounty deadline",
+    }.get(_sqlstate(error), "task or bounty violates a database rule")
 
 
 async def _claim_counts(session: AsyncSession, bounty_ids: list[UUID]) -> dict[UUID, int]:
@@ -175,7 +195,7 @@ async def create_task(
         await session.flush()
     except DBAPIError as error:
         if _is_task_rule_violation(error):
-            raise TaskValidationError("task or bounty violates a database rule") from error
+            raise TaskValidationError(_task_rule_message(error)) from error
         raise
 
     return await get_task(session, task.id)
@@ -194,8 +214,7 @@ async def create_task_and_commit(
         await session.rollback()
         raise
 
-    session.expire_all()
-    return await get_task(session, response.id)
+    return response
 
 
 async def open_task(session: AsyncSession, task_id: UUID) -> TaskResponse:

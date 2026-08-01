@@ -68,7 +68,7 @@ async def test_database_rejects_duplicate_proof_requirements() -> None:
 async def test_database_rejects_bounty_after_task_deadline() -> None:
     _, task_id = await seed_task()
     async with AsyncSessionFactory() as session:
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as caught:
             await session.execute(
                 text(
                     """
@@ -86,6 +86,7 @@ async def test_database_rejects_bounty_after_task_deadline() -> None:
                     "deadline_at": datetime.now(UTC) + timedelta(days=11),
                 },
             )
+        assert caught.value.orig.sqlstate == "HTV04"
 
 
 async def test_database_rejects_shortened_task_deadline() -> None:
@@ -111,7 +112,7 @@ async def test_database_rejects_shortened_task_deadline() -> None:
         await session.commit()
 
     async with AsyncSessionFactory() as session:
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as caught:
             await session.execute(
                 text("UPDATE tasks SET deadline_at = :deadline_at WHERE id = :task_id"),
                 {
@@ -119,6 +120,62 @@ async def test_database_rejects_shortened_task_deadline() -> None:
                     "deadline_at": datetime.now(UTC) + timedelta(days=7),
                 },
             )
+        assert caught.value.orig.sqlstate == "HTV05"
+
+
+async def test_database_task_guards_use_stable_application_codes() -> None:
+    creator_id, task_id = await seed_task()
+    async with AsyncSessionFactory() as session:
+        freelancer_id = await session.scalar(
+            text(
+                """
+                INSERT INTO users (email, display_name, can_work_tasks)
+                VALUES ('database-worker@example.com', 'Database Worker', true)
+                RETURNING id
+                """
+            )
+        )
+        with pytest.raises(DBAPIError) as creator_error:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO tasks (
+                      creator_id, title, description, total_budget_minor, currency
+                    ) VALUES (
+                      :creator_id, 'Invalid creator', 'Guard test', 1000, 'USD'
+                    )
+                    """
+                ),
+                {"creator_id": freelancer_id},
+            )
+        assert creator_error.value.orig.sqlstate == "HTV01"
+        await session.rollback()
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO bounties (
+                  task_id, platform, action, title, instructions, reward_minor,
+                  slots_total, influence_metric, proof_requirements
+                ) VALUES (
+                  :task_id, 'reddit', 'post', 'Allocated bounty', 'Guard test',
+                  4000, 1, 'followers', '["url"]'
+                )
+                """
+            ),
+            {"task_id": task_id},
+        )
+        await session.commit()
+
+        with pytest.raises(DBAPIError) as budget_error:
+            await session.execute(
+                text(
+                    "UPDATE tasks SET total_budget_minor = 3000 "
+                    "WHERE id = :task_id AND creator_id = :creator_id"
+                ),
+                {"task_id": task_id, "creator_id": creator_id},
+            )
+        assert budget_error.value.orig.sqlstate == "HTV03"
 
 
 async def test_concurrent_bounty_inserts_cannot_exceed_task_budget() -> None:
@@ -146,8 +203,8 @@ async def test_concurrent_bounty_inserts_cannot_exceed_task_budget() -> None:
                     title,
                 )
             return True
-        except asyncpg.RaiseError as error:
-            assert error.sqlstate == "P0001"
+        except asyncpg.PostgresError as error:
+            assert error.sqlstate == "HTV02"
             assert "bounties allocate" in str(error)
             assert "task budget" in str(error)
             return False

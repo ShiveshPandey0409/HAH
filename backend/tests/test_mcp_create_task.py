@@ -108,6 +108,21 @@ async def test_api_key_is_hashed_authenticated_and_disabled(client: AsyncClient)
         stored = await session.get(APIClient, principal.client_id)
         assert stored is not None
         assert stored.last_used_at is not None
+        first_used_at = stored.last_used_at
+
+    assert await authenticate_api_token(token) == principal
+    async with AsyncSessionFactory() as session:
+        stored = await session.get(APIClient, principal.client_id)
+        assert stored is not None
+        assert stored.last_used_at == first_used_at
+        stored.last_used_at = datetime.now(UTC) - timedelta(minutes=6)
+        await session.commit()
+
+    assert await authenticate_api_token(token) == principal
+    async with AsyncSessionFactory() as session:
+        stored = await session.get(APIClient, principal.client_id)
+        assert stored is not None
+        assert stored.last_used_at > first_used_at
         stored.status = IntegrationStatus.DISABLED
         await session.commit()
 
