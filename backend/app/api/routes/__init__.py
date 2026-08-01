@@ -1,1 +1,1 @@
-"""Route modules."""
+"""Unversioned infrastructure routes."""

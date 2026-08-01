@@ -29,11 +29,11 @@ BEGIN
   ) RETURNING id INTO v_worker;
 
   INSERT INTO social_accounts (
-    user_id, platform, handle, profile_url, follower_count, following_count,
+    user_id, platform, profile_url, follower_count, following_count,
     reddit_post_karma, reddit_comment_karma, is_verified, verified_at,
     enrichment_provider, enriched_at
   ) VALUES (
-    v_worker, 'reddit', 'worker_handle', 'https://reddit.com/u/worker_handle',
+    v_worker, 'reddit', 'https://www.reddit.com/user/worker-profile/',
     2500, 200, 4000, 6000, true, now(), 'parallel', now()
   ) RETURNING id INTO v_social;
 

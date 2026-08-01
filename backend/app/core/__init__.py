@@ -1,1 +1,1 @@
-"""Core application configuration."""
+"""Backend configuration and shared concerns."""

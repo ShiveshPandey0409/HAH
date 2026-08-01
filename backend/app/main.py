@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -5,20 +7,18 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.db import Database
+from app.db.session import engine
+
+settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    database = Database(get_settings().database_url)
-    await database.open()
-    app.state.database = database
-
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        await database.close()
+        await engine.dispose()
 
 
-app = FastAPI(title="HAH API", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.include_router(api_router)

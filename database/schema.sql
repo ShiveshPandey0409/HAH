@@ -38,15 +38,14 @@ CREATE TABLE users (
   CHECK ((prava_account_ref IS NULL) = (prava_account_status IS NULL))
 );
 
--- A freelancer can have at most one Reddit account and one LinkedIn account.
+-- A freelancer can submit at most one public Reddit URL and one public LinkedIn URL.
 -- Current enrichment metrics live here; a separate history table is unnecessary
 -- for the current product requirements.
 CREATE TABLE social_accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   platform social_platform NOT NULL,
-  handle citext NOT NULL,
-  profile_url text,
+  profile_url text NOT NULL,
   follower_count bigint CHECK (follower_count >= 0),
   following_count bigint CHECK (following_count >= 0),
   reddit_post_karma bigint,
@@ -66,8 +65,9 @@ CREATE TABLE social_accounts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (user_id, platform),
-  UNIQUE (platform, handle),
+  UNIQUE (platform, profile_url),
   UNIQUE (id, user_id, platform),
+  CHECK (profile_url ~* '^https://[^[:space:]]+$'),
   CHECK (jsonb_typeof(enrichment_data) = 'object'),
   CHECK (platform = 'reddit' OR (reddit_post_karma IS NULL AND reddit_comment_karma IS NULL)),
   CHECK (NOT is_verified OR verified_at IS NOT NULL)
@@ -454,7 +454,7 @@ BEGIN
      AND platform = v_bounty.platform
      AND is_verified;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'a verified matching social account is required';
+    RAISE EXCEPTION 'a provider-validated matching public social profile is required';
   END IF;
 
   v_metric := CASE v_bounty.influence_metric
@@ -463,7 +463,7 @@ BEGIN
   END;
   IF v_metric IS NULL OR v_metric < v_bounty.min_influence
      OR (v_bounty.max_influence IS NOT NULL AND v_metric > v_bounty.max_influence) THEN
-    RAISE EXCEPTION 'social account does not meet the influence range';
+    RAISE EXCEPTION 'public social profile does not meet the influence range';
   END IF;
 
   SELECT count(*) INTO v_claimed
@@ -484,7 +484,7 @@ CREATE TRIGGER claims_validate
 BEFORE INSERT OR UPDATE OF bounty_id, freelancer_id, social_account_id ON bounty_claims
 FOR EACH ROW EXECUTE FUNCTION validate_claim();
 
--- Freelancer feed: only open bounties matching a verified account and its current
+-- Freelancer feed: only open bounties matching a provider-validated public profile and its current
 -- influencer range, excluding work already claimed by that freelancer.
 CREATE OR REPLACE FUNCTION get_eligible_bounties(p_freelancer_id uuid)
 RETURNS TABLE (
@@ -707,7 +707,7 @@ AFTER UPDATE OF status ON payments
 FOR EACH ROW EXECUTE FUNCTION apply_payment_success();
 
 COMMENT ON TABLE users IS 'Creator and/or freelancer account, including 1:1 profile and Prava account reference.';
-COMMENT ON TABLE social_accounts IS 'Freelancer Reddit/LinkedIn identity, verification, and latest influence metrics.';
+COMMENT ON TABLE social_accounts IS 'Freelancer-submitted public Reddit/LinkedIn account URL, provider validation, and latest influence metrics; no username or OAuth connection.';
 COMMENT ON TABLE tasks IS 'Creator-owned campaign with a total budget.';
 COMMENT ON TABLE bounties IS 'Paid Reddit/LinkedIn post or comment subtask with eligibility and proof rules.';
 COMMENT ON TABLE bounty_claims IS 'One freelancer reservation/slot and its work lifecycle.';

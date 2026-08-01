@@ -1,1 +1,1 @@
-"""HAH backend package."""
+"""Hire a Human backend API."""

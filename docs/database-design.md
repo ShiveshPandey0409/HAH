@@ -7,8 +7,8 @@ The schema supports exactly the requested core flow:
 
 1. A creator creates a task manually or through MCP.
 2. The task contains Reddit/LinkedIn post or comment bounties.
-3. A freelancer connects Reddit and/or LinkedIn and receives enriched influence metrics.
-4. The freelancer feed returns only bounties matching their verified account and influence range.
+3. A freelancer submits a public Reddit and/or LinkedIn account URL and receives enriched influence metrics.
+4. The freelancer feed returns only bounties matching a provider-validated public profile and influence range.
 5. The freelancer claims one slot and submits URL/image/screenshot proof.
 6. The submission is verified automatically, manually, or through MCP.
 7. An approved submission creates one idempotent Prava payout.
@@ -19,7 +19,7 @@ The schema supports exactly the requested core flow:
 | Table | Used by | Purpose | Why it is not merged further |
 |---|---|---|---|
 | `users` | Both | Login identity; creator/freelancer capability flags; optional bio; one Prava account reference. | Already merges roles, freelancer profile, and Prava account because each is 1:1 with a user. |
-| `social_accounts` | Freelancer | Reddit/LinkedIn handle, verification, followers/following, Reddit karma, and latest enrichment payload. | One user can have two platform accounts, so these cannot be columns on `users` without duplication. |
+| `social_accounts` | Freelancer | Submitted public Reddit/LinkedIn account URL, provider validation, followers/following, Reddit karma, and latest enrichment payload. | One user can submit one URL for each platform, so these cannot be columns on `users` without duplication. The table does not store a username, social login, or OAuth connection. |
 | `tasks` | Creator | Top-level campaign, total budget, status, deadline, and manual/MCP source. | A task has many bounties; combining them would repeat campaign data. |
 | `bounties` | Both | A Reddit/LinkedIn post/comment subtask, reward, slot count, influencer range, instructions, and proof rules. | It is the required task-to-subtask relationship. Proof rules are merged here as a small JSON array. |
 | `bounty_claims` | Freelancer | Reserves one bounty slot and tracks it from claimed to submitted, approved, and paid. | A bounty can be claimed by many freelancers. Pre-created slot and assignment tables were merged into this one row. |
@@ -50,7 +50,7 @@ The earlier design was over-normalized. These tables are intentionally **not** p
 - A user's account can be creator, freelancer, or both.
 - Only `reddit` and `linkedin` platforms and `post` and `comment` actions are accepted.
 - Bounty allocation cannot exceed the task's total budget, even during concurrent writes.
-- `get_eligible_bounties(user_id)` implements the freelancer feed using verified social metrics.
+- `get_eligible_bounties(user_id)` implements the freelancer feed using provider-validated public-profile metrics.
 - `claim_bounty(...)` atomically checks platform, influencer range, deadline, and remaining capacity.
 - A successful verification moves the claim to `approved`.
 - A payout must match the exact task, bounty reward, approved submission, creator, freelancer, and currency.
@@ -73,5 +73,7 @@ SELECT * FROM claim_bounty(
 );
 ```
 
-The executable PostgreSQL definition is in `database/schema.sql`, and the
-transactional end-to-end check is in `database/smoke_test.sql`.
+The immutable executable PostgreSQL baseline is in `database/schema.sql`, its
+adoption procedure is in `database/README.md`, and the transactional end-to-end
+check is in `database/smoke_test.sql`. Schema changes after baseline revision
+`20260801_0001` must use new Alembic migrations.

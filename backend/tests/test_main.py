@@ -1,4 +1,6 @@
-import asyncio
+from __future__ import annotations
+
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,16 +9,13 @@ from fastapi import FastAPI
 from app.main import lifespan
 
 
-def test_lifespan_closes_database_after_error() -> None:
-    database = AsyncMock()
+async def test_lifespan_disposes_engine_after_application_error() -> None:
+    dispose = AsyncMock()
+    fake_engine = SimpleNamespace(dispose=dispose)
 
-    async def run_lifespan() -> None:
-        with patch("app.main.Database", return_value=database):
-            with pytest.raises(RuntimeError, match="application failed"):
-                async with lifespan(FastAPI()):
-                    raise RuntimeError("application failed")
+    with patch("app.main.engine", fake_engine):
+        with pytest.raises(RuntimeError, match="application failed"):
+            async with lifespan(FastAPI()):
+                raise RuntimeError("application failed")
 
-    asyncio.run(run_lifespan())
-
-    database.open.assert_awaited_once()
-    database.close.assert_awaited_once()
+    dispose.assert_awaited_once()

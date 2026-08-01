@@ -11,7 +11,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         social_platform platform
-        citext handle
+        text profile_url UK
         bigint follower_count
         bigint following_count
         bigint karma "generated"
@@ -146,7 +146,7 @@ erDiagram
         int attempt_count
     }
 
-    USERS ||--o{ SOCIAL_ACCOUNTS : "freelancer owns"
+    USERS ||--o{ SOCIAL_ACCOUNTS : "freelancer submits"
     USERS ||--o{ TASKS : "creator posts"
     TASKS ||--|{ BOUNTIES : "contains subtasks"
     USERS ||--o{ BOUNTY_CLAIMS : "freelancer claims"
