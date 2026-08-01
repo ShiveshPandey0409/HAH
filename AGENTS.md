@@ -34,3 +34,4 @@ Brands will create tasks an agent using MCP. The agent pays the human through Pr
 # Repo conventions
 
 - NEVER PUSH TO `main`, use named branch: `aaryan`, `abhik`, `akhil`, `shivesh`
+- ALWAYS pull before push
