@@ -1,0 +1,12 @@
+name: hah-backend
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - fastapi
+  - httpx2
+  - psycopg
+  - psycopg-pool
+  - pydantic-settings
+  - pytest
+  - uvicorn
