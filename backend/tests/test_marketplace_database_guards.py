@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import asyncpg
@@ -27,6 +28,80 @@ def sqlstate(error: DBAPIError) -> str | None:
     if direct is not None:
         return direct
     return getattr(getattr(error.orig, "__cause__", None), "sqlstate", None)
+
+
+async def test_claim_expiry_extension_is_clamped_to_parent_deadlines(
+    client: AsyncClient,
+) -> None:
+    creator_id = await create_user(
+        client,
+        email="guard-expiry-creator@example.com",
+        can_create_tasks=True,
+        can_work_tasks=False,
+    )
+    freelancer_id = await create_user(client, email="guard-expiry-worker@example.com")
+    social_id = await add_social_account(freelancer_id)
+    task_deadline = datetime.now(UTC) + timedelta(days=2)
+    bounty_deadline = task_deadline - timedelta(days=1)
+    task = await create_open_task(
+        client,
+        creator_id,
+        [
+            bounty_payload("Bounty deadline cap", deadline_at=bounty_deadline),
+            bounty_payload("Task deadline cap"),
+        ],
+        deadline_at=task_deadline,
+    )
+    bounty_ids = bounty_ids_by_title(task)
+    bounty_claim = await claim(
+        client,
+        bounty_ids["Bounty deadline cap"],
+        freelancer_id,
+        social_id,
+    )
+    task_claim = await claim(
+        client,
+        bounty_ids["Task deadline cap"],
+        freelancer_id,
+        social_id,
+    )
+    assert bounty_claim.status_code == 201
+    assert task_claim.status_code == 201
+
+    attempted_expiry = task_deadline + timedelta(days=7)
+    async with AsyncSessionFactory() as session:
+        bounty_expiry = await session.scalar(
+            text(
+                """
+                UPDATE bounty_claims
+                   SET claim_expires_at = :attempted_expiry
+                 WHERE id = :claim_id
+                RETURNING claim_expires_at
+                """
+            ),
+            {
+                "attempted_expiry": attempted_expiry,
+                "claim_id": bounty_claim.json()["id"],
+            },
+        )
+        task_expiry = await session.scalar(
+            text(
+                """
+                UPDATE bounty_claims
+                   SET claim_expires_at = :attempted_expiry
+                 WHERE id = :claim_id
+                RETURNING claim_expires_at
+                """
+            ),
+            {
+                "attempted_expiry": attempted_expiry,
+                "claim_id": task_claim.json()["id"],
+            },
+        )
+        await session.commit()
+
+    assert bounty_expiry == bounty_deadline
+    assert task_expiry == task_deadline
 
 
 async def test_capacity_reactivation_and_reward_snapshot_guards(client: AsyncClient) -> None:

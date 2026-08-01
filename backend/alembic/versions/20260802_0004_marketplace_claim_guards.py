@@ -87,6 +87,26 @@ def upgrade() -> None:
                NOT hah_claim_occupies_slot(OLD.status, OLD.claim_expires_at)
                AND hah_claim_occupies_slot(NEW.status, NEW.claim_expires_at)
              ) THEN
+            IF NEW.claim_expires_at IS NOT NULL THEN
+              SELECT * INTO v_bounty
+                FROM bounties
+               WHERE id = NEW.bounty_id;
+              SELECT * INTO v_task
+                FROM tasks
+               WHERE id = v_bounty.task_id;
+              IF v_bounty.deadline_at IS NOT NULL THEN
+                NEW.claim_expires_at := LEAST(
+                  NEW.claim_expires_at,
+                  v_bounty.deadline_at
+                );
+              END IF;
+              IF v_task.deadline_at IS NOT NULL THEN
+                NEW.claim_expires_at := LEAST(
+                  NEW.claim_expires_at,
+                  v_task.deadline_at
+                );
+              END IF;
+            END IF;
             RETURN NEW;
           END IF;
 

@@ -154,16 +154,14 @@ def validate_provider_result(
             raise EnrichmentInvalidResponseError(
                 "enrichment provider returned platform-incompatible data"
             )
-        required_metrics = (result.follower_count,)
-    else:
-        required_metrics = (result.follower_count,)
-        if result.is_verified and (
-            result.reddit_post_karma is None and result.reddit_comment_karma is None
-        ):
-            raise EnrichmentInvalidResponseError("verified Reddit karma is incomplete")
-
-    if result.is_verified and any(metric is None for metric in required_metrics):
-        raise EnrichmentInvalidResponseError("verified profile metrics are incomplete")
+        if result.is_verified and result.follower_count is None:
+            raise EnrichmentInvalidResponseError("verified profile metrics are incomplete")
+    elif result.is_verified and (
+        result.reddit_post_karma is None and result.reddit_comment_karma is None
+    ):
+        # Reddit eligibility may use karma without a follower metric. Require a
+        # provider-validated karma signal while allowing follower_count to be absent.
+        raise EnrichmentInvalidResponseError("verified Reddit karma is incomplete")
 
     try:
         redacted = redact_public_data(result.public_data)
