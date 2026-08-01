@@ -84,8 +84,8 @@ def upgrade() -> None:
              AND NEW.freelancer_id IS NOT DISTINCT FROM OLD.freelancer_id
              AND NEW.social_account_id IS NOT DISTINCT FROM OLD.social_account_id
              AND NOT (
-               OLD.status IN ('expired', 'cancelled', 'rejected')
-               AND NEW.status NOT IN ('expired', 'cancelled', 'rejected')
+               NOT hah_claim_occupies_slot(OLD.status, OLD.claim_expires_at)
+               AND hah_claim_occupies_slot(NEW.status, NEW.claim_expires_at)
              ) THEN
             RETURN NEW;
           END IF;
@@ -195,7 +195,8 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE TRIGGER claims_validate
-        BEFORE INSERT OR UPDATE OF bounty_id, freelancer_id, social_account_id, status
+        BEFORE INSERT OR UPDATE OF
+          bounty_id, freelancer_id, social_account_id, status, claim_expires_at
         ON bounty_claims
         FOR EACH ROW EXECUTE FUNCTION validate_claim()
         """
@@ -325,7 +326,7 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION prevent_claimed_task_currency_change()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
-          IF EXISTS (
+          IF NEW.currency IS DISTINCT FROM OLD.currency AND EXISTS (
             SELECT 1
               FROM bounties AS bounty
               JOIN bounty_claims AS claim ON claim.bounty_id = bounty.id

@@ -70,12 +70,54 @@ async def test_capacity_reactivation_and_reward_snapshot_guards(client: AsyncCli
         await session.rollback()
 
         await session.execute(
-            text("UPDATE bounty_claims SET status = 'rejected' WHERE id = :claim_id"),
+            text(
+                """
+                UPDATE bounty_claims
+                   SET claimed_at = now() - interval '2 hours',
+                       claim_expires_at = now() - interval '1 hour'
+                 WHERE id = :claim_id
+                """
+            ),
             {"claim_id": first_claim.json()["id"]},
         )
         await session.execute(
             text("UPDATE bounties SET slots_total = 1 WHERE id = :bounty_id"),
             {"bounty_id": bounty_id},
+        )
+        await session.commit()
+
+        with pytest.raises(DBAPIError) as submitted_reactivation_error:
+            await session.execute(
+                text("UPDATE bounty_claims SET status = 'submitted' WHERE id = :claim_id"),
+                {"claim_id": first_claim.json()["id"]},
+            )
+        assert sqlstate(submitted_reactivation_error.value) == "HCF01"
+        await session.rollback()
+
+        with pytest.raises(DBAPIError) as expiry_reactivation_error:
+            await session.execute(
+                text(
+                    """
+                    UPDATE bounty_claims
+                       SET claim_expires_at = now() + interval '1 hour'
+                     WHERE id = :claim_id
+                    """
+                ),
+                {"claim_id": first_claim.json()["id"]},
+            )
+        assert sqlstate(expiry_reactivation_error.value) == "HCF01"
+        await session.rollback()
+
+        await session.execute(
+            text(
+                """
+                UPDATE bounty_claims
+                   SET status = 'rejected',
+                       claim_expires_at = now() + interval '1 hour'
+                 WHERE id = :claim_id
+                """
+            ),
+            {"claim_id": first_claim.json()["id"]},
         )
         await session.commit()
 
@@ -117,6 +159,99 @@ async def test_capacity_reactivation_and_reward_snapshot_guards(client: AsyncCli
     assert state.slots_total == 1
     assert state.active_claims == 1
     assert state.reward_minor == 2_000
+
+
+async def test_slot_reduction_and_claim_reactivation_serialize(client: AsyncClient) -> None:
+    creator_id = await create_user(
+        client,
+        email="guard-race-creator@example.com",
+        can_create_tasks=True,
+        can_work_tasks=False,
+    )
+    first_id = await create_user(client, email="guard-race-first@example.com")
+    second_id = await create_user(client, email="guard-race-second@example.com")
+    first_social = await add_social_account(first_id)
+    second_social = await add_social_account(second_id)
+    task = await create_open_task(
+        client,
+        creator_id,
+        [bounty_payload("Guarded race", slot_count=2)],
+    )
+    bounty_id = bounty_ids_by_title(task)["Guarded race"]
+    first_claim = await claim(client, bounty_id, first_id, first_social)
+    second_claim = await claim(client, bounty_id, second_id, second_social)
+    assert first_claim.status_code == 201
+    assert second_claim.status_code == 201
+
+    async with AsyncSessionFactory() as session:
+        await session.execute(
+            text("UPDATE bounty_claims SET status = 'rejected' WHERE id = :claim_id"),
+            {"claim_id": second_claim.json()["id"]},
+        )
+        await session.commit()
+
+    dsn = (
+        make_url(TEST_DATABASE_URL)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    barrier = asyncio.Barrier(2)
+
+    async def reduce_slots() -> bool:
+        connection = await asyncpg.connect(dsn)
+        try:
+            async with connection.transaction():
+                await barrier.wait()
+                await connection.execute(
+                    "UPDATE bounties SET slots_total = 1 WHERE id = $1",
+                    bounty_id,
+                )
+            return True
+        except asyncpg.PostgresError as error:
+            assert error.sqlstate == "23514"
+            return False
+        finally:
+            await connection.close()
+
+    async def reactivate_claim() -> bool:
+        connection = await asyncpg.connect(dsn)
+        try:
+            async with connection.transaction():
+                await barrier.wait()
+                await connection.execute(
+                    "UPDATE bounty_claims SET status = 'claimed' WHERE id = $1",
+                    UUID(second_claim.json()["id"]),
+                )
+            return True
+        except asyncpg.PostgresError as error:
+            assert error.sqlstate == "HCF01"
+            return False
+        finally:
+            await connection.close()
+
+    results = await asyncio.gather(reduce_slots(), reactivate_claim())
+    assert sorted(results) == [False, True]
+
+    async with AsyncSessionFactory() as session:
+        state = (
+            await session.execute(
+                text(
+                    """
+                    SELECT b.slots_total,
+                           count(c.id) FILTER (
+                             WHERE hah_claim_occupies_slot(c.status, c.claim_expires_at)
+                           ) AS active_claims
+                      FROM bounties AS b
+                      JOIN bounty_claims AS c ON c.bounty_id = b.id
+                     WHERE b.id = :bounty_id
+                     GROUP BY b.id
+                    """
+                ),
+                {"bounty_id": bounty_id},
+            )
+        ).one()
+
+    assert state.active_claims <= state.slots_total
 
 
 async def test_database_claim_function_serializes_the_final_slot(client: AsyncClient) -> None:

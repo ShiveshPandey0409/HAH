@@ -436,6 +436,12 @@ async def test_claim_returns_and_persists_fixed_reward_snapshot(client: AsyncCli
         assert sqlstate(task_currency_error.value) == "23514"
         await session.rollback()
 
+        await session.execute(
+            text("UPDATE tasks SET currency = currency WHERE id = :task_id"),
+            {"task_id": task["id"]},
+        )
+        await session.commit()
+
         snapshot = (
             await session.execute(
                 text(
