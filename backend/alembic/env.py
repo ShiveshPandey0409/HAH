@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.db.alembic_config import escape_alembic_config_value
 from app.db.base import Base
-from app.models import User  # noqa: F401
+from app.models import APIClient, Bounty, MCPRequest, Task, User  # noqa: F401
 
 config = context.config
 
