@@ -79,6 +79,73 @@ def test_unknown_environment_name_is_rejected() -> None:
         )
 
 
+def test_mcp_oauth_introspection_configuration_is_atomic() -> None:
+    with pytest.raises(ValidationError, match="must be configured together"):
+        Settings(
+            _env_file=None,
+            mcp_oauth_introspection_url="http://localhost:9000/introspect",
+        )
+
+
+@pytest.mark.parametrize(
+    ("setting_name", "credential_url"),
+    [
+        ("mcp_public_url", "https://user:password@api.example.com/mcp"),
+        ("mcp_oauth_issuer_url", "https://user:password@auth.example.com/issuer"),
+        (
+            "mcp_oauth_introspection_url",
+            "https://user:password@auth.example.com/introspect",
+        ),
+    ],
+)
+def test_mcp_oauth_urls_reject_user_information(
+    setting_name: str,
+    credential_url: str,
+) -> None:
+    values = {
+        "mcp_public_url": "https://api.example.com/mcp",
+        "mcp_oauth_issuer_url": "https://auth.example.com/issuer",
+        "mcp_oauth_introspection_url": "https://auth.example.com/introspect",
+        "mcp_oauth_introspection_client_id": "resource-server",
+        "mcp_oauth_introspection_client_secret": SecretStr("deployment-secret"),
+        setting_name: credential_url,
+    }
+
+    with pytest.raises(ValidationError, match="cannot contain user information"):
+        Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_deployments_require_https_mcp_oauth_configuration(app_env: str) -> None:
+    common = {
+        "_env_file": None,
+        "app_env": app_env,
+        "webhook_secret_encryption_keys": [Fernet.generate_key().decode()],
+        "mcp_oauth_introspection_client_id": "resource-server",
+        "mcp_oauth_introspection_client_secret": SecretStr("deployment-secret"),
+    }
+    with pytest.raises(ValidationError, match="requires OAuth"):
+        Settings(
+            _env_file=None,
+            app_env=app_env,
+            webhook_secret_encryption_keys=[Fernet.generate_key().decode()],
+        )
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        Settings(
+            **common,
+            mcp_oauth_introspection_url="http://localhost:9000/introspect",
+        )
+
+    configured = Settings(
+        **common,
+        mcp_public_url="https://api.example.com/mcp",
+        mcp_oauth_issuer_url="https://auth.example.com/issuer",
+        mcp_oauth_introspection_url="https://auth.example.com/introspect",
+    )
+
+    assert configured.mcp_oauth_introspection_configured is True
+
+
 def submission_event_data(**overrides: object) -> SubmissionCreatedData:
     values: dict[str, object] = {
         "submission_id": uuid4(),

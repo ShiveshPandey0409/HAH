@@ -158,8 +158,33 @@ async def test_legacy_invalid_proof_cannot_be_approved(client: AsyncClient) -> N
         )
         await session.commit()
 
-    rejected = await verify(client, submission_id, creator_id, result="passed")
-    assert rejected.status_code == 422, rejected.text
+    try:
+        rejected = await verify(client, submission_id, creator_id, result="passed")
+        assert rejected.status_code == 422, rejected.text
+    finally:
+        # This test temporarily reproduces a pre-migration row. Restore both the
+        # data and validation state so later migration-drift checks see the real
+        # deployed schema rather than a test-created NOT VALID constraint.
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text(
+                    """
+                    UPDATE submission_proofs
+                       SET external_url = 'https://legacy.example.com/proof'
+                     WHERE submission_id = :submission_id
+                    """
+                ),
+                {"submission_id": submission_id},
+            )
+            await session.execute(
+                text(
+                    """
+                    ALTER TABLE submission_proofs
+                    VALIDATE CONSTRAINT submission_proofs_https_url_check
+                    """
+                )
+            )
+            await session.commit()
 
 
 async def test_database_prevents_terminal_verification_rewrite(client: AsyncClient) -> None:

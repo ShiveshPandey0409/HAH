@@ -20,8 +20,8 @@ PostgreSQL database, and the full test suite passes.
   rules.
 - [x] Add `POST /v1/tasks`, `POST /v1/tasks/{task_id}/open`, and
   `GET /v1/tasks/{task_id}`.
-- [x] Add hashed API-key authentication, tool scopes, audit records, and
-  idempotency handling for MCP requests.
+- [x] Add scoped audit records and idempotency handling for MCP requests. Legacy
+  API-client rows remain as historical data only.
 - [x] Implement MCP `create_task` through the same task service with
   `creation_source = mcp`.
 - [x] Test all supported platform/action combinations, transaction rollback,
@@ -61,6 +61,13 @@ PostgreSQL database, and the full test suite passes.
   add `POST /v1/submissions/{submission_id}/verification`.
 - [x] Implement MCP `verify_submission` through that service with scope checks,
   audit records, redaction, and idempotency.
+- [x] Replace MCP API-key transport with an OAuth 2.1 resource server: publish
+  RFC 9728 discovery, validate introspected tokens against the exact issuer and
+  `/mcp` audience, map `(issuer, subject, client_id)` to a revocable user
+  delegation, bind consent to a never-reused authorization-server grant handle,
+  and require explicit approval scope for a passed result.
+- [x] Keep access/refresh tokens and raw claims out of persistence and disable all
+  payment tools until transaction-bound consent and payment safeguards are built.
 - [x] Add `PUT /v1/users/{creator_id}/webhook` and
   `GET /v1/users/{creator_id}/webhook`, transactional event creation, signing,
   retry/backoff, and concurrency-safe delivery.

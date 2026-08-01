@@ -10,16 +10,16 @@ from sqlalchemy import func, select
 
 from app.core.redaction import canonical_json_fingerprint, redact_sensitive_data
 from app.db.session import AsyncSessionFactory
-from app.mcp.auth import use_api_client
+from app.mcp.oauth import MCP_ACCESS_SCOPE, OAuthPrincipal, use_oauth_principal
 from app.models.claim import BountyClaim, ClaimStatus
 from app.models.integration import IntegrationStatus, MCPRequest, RequestStatus
 from app.models.submission import Submission, VerificationMethod, VerificationStatus
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.services import mcp_requests
 from app.services.api_clients import (
+    SUBMISSIONS_APPROVE_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
-    APIClientPrincipal,
 )
 from app.services.mcp_requests import (
     MCPRequestExecutionError,
@@ -48,12 +48,12 @@ def verification_arguments(
 
 
 async def call_verify_tool(
-    principal: APIClientPrincipal,
+    principal: OAuthPrincipal,
     arguments: dict[str, object],
 ):
     from app.main import app
 
-    with use_api_client(principal):
+    with use_oauth_principal(principal):
         async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
             return await mcp_client.call_tool("verify_submission", arguments)
 
@@ -84,7 +84,7 @@ async def test_verify_tool_schema_replay_safe_audit_and_transactional_events(cli
     creator_id, submission_id = await submitted_work(client, "mcp-success")
     _, principal = await issue_client(
         creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
     await enable_webhook(
         creator_id,
@@ -110,7 +110,7 @@ async def test_verify_tool_schema_replay_safe_audit_and_transactional_events(cli
 
     from app.main import app
 
-    with use_api_client(principal):
+    with use_oauth_principal(principal):
         async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
             tools = await mcp_client.list_tools()
             tool = next(item for item in tools.tools if item.name == "verify_submission")
@@ -169,6 +169,16 @@ async def test_verify_tool_schema_replay_safe_audit_and_transactional_events(cli
     assert request is not None
     assert request.method == "verify_submission"
     assert request.status == RequestStatus.SUCCEEDED
+    assert request.api_client_id is None
+    assert request.oauth_delegation_id == principal.delegation_id
+    assert request.actor_user_id == creator_id
+    assert request.auth_scopes == [
+        MCP_ACCESS_SCOPE,
+        SUBMISSIONS_APPROVE_SCOPE,
+        SUBMISSIONS_VERIFY_SCOPE,
+    ]
+    assert request.oauth_consent_version == principal.consent_version
+    assert request.oauth_authorization_id == principal.authorization_id
     assert request.submission_id == submission_id
     assert request.request_data["input_fingerprint"] == expected_fingerprint
     assert request.request_data["check_count"] == 7
@@ -260,11 +270,26 @@ async def test_verify_scope_is_required_before_audit(client) -> None:
     assert submission.verification_status == VerificationStatus.PENDING
 
 
+async def test_approve_scope_is_required_before_passed_audit(client) -> None:
+    creator_id, submission_id = await submitted_work(client, "mcp-approve-scope")
+    _, principal = await issue_client(creator_id, scopes={SUBMISSIONS_VERIFY_SCOPE})
+
+    result = await call_verify_tool(principal, verification_arguments(submission_id))
+
+    assert result.is_error
+    assert SUBMISSIONS_APPROVE_SCOPE in result.content[0].text
+    async with AsyncSessionFactory() as session:
+        assert await session.scalar(select(func.count()).select_from(MCPRequest)) == 0
+        submission = await session.get(Submission, submission_id)
+    assert submission is not None
+    assert submission.verification_status == VerificationStatus.PENDING
+
+
 async def test_verify_idempotency_conflict_preserves_first_result(client) -> None:
     creator_id, submission_id = await submitted_work(client, "mcp-conflict")
     _, principal = await issue_client(
         creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
     arguments = verification_arguments(submission_id)
     first = await call_verify_tool(principal, arguments)
@@ -323,7 +348,7 @@ async def test_oversized_checks_do_not_bloat_the_failed_audit(client) -> None:
     creator_id, submission_id = await submitted_work(client, "mcp-oversized-checks")
     _, principal = await issue_client(
         creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
 
     with pytest.raises(MCPRequestValidationError):
@@ -353,7 +378,7 @@ async def test_wrong_creator_is_hidden_and_cannot_verify(client) -> None:
     )
     _, principal = await issue_client(
         wrong_creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
     await enable_webhook(wrong_creator_id, "mcp_request.completed")
 
@@ -379,7 +404,7 @@ async def test_duplicate_calls_lock_one_request_and_verify_once(client) -> None:
     creator_id, submission_id = await submitted_work(client, "mcp-concurrent")
     _, principal = await issue_client(
         creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
     arguments = {
         "idempotency_key": "concurrent-verification",
@@ -411,7 +436,7 @@ async def test_completion_event_failure_rolls_back_verification_then_retry_succe
     creator_id, submission_id = await submitted_work(client, "mcp-atomic")
     _, principal = await issue_client(
         creator_id,
-        scopes={SUBMISSIONS_VERIFY_SCOPE},
+        scopes={SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
     )
     real_enqueue = mcp_requests._enqueue_mcp_request_completed
     call_count = 0

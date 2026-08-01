@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     app_env: AppEnvironment = "development"
     log_level: str = "INFO"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hire_human"
+    mcp_public_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000/mcp")
+    mcp_oauth_issuer_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
+    mcp_oauth_introspection_url: AnyHttpUrl | None = None
+    mcp_oauth_introspection_client_id: str | None = None
+    mcp_oauth_introspection_client_secret: SecretStr | None = None
+    mcp_oauth_introspection_timeout_seconds: float = 5.0
+    mcp_oauth_clock_skew_seconds: int = 30
+    mcp_oauth_max_token_lifetime_seconds: int = 3600
     mcp_allowed_hosts: list[str] = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     mcp_allowed_origins: list[str] = [
         "http://127.0.0.1:*",
@@ -63,7 +71,64 @@ class Settings(BaseSettings):
                 raise ValueError(f"{self.app_env} requires a webhook encryption key")
             if DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY in configured_keys:
                 raise ValueError("the development webhook encryption key is not deployment-safe")
+        self._validate_mcp_oauth_settings()
         return self
+
+    def _validate_mcp_oauth_settings(self) -> None:
+        if self.mcp_public_url.path != "/mcp":
+            raise ValueError("MCP_PUBLIC_URL must be the canonical public /mcp endpoint")
+        for name, url in (
+            ("MCP_PUBLIC_URL", self.mcp_public_url),
+            ("MCP_OAUTH_ISSUER_URL", self.mcp_oauth_issuer_url),
+            ("MCP_OAUTH_INTROSPECTION_URL", self.mcp_oauth_introspection_url),
+        ):
+            if url is not None and (url.username is not None or url.password is not None):
+                raise ValueError(f"{name} cannot contain user information")
+            if url is not None and (url.query is not None or url.fragment is not None):
+                raise ValueError(f"{name} cannot contain a query string or fragment")
+            if (
+                url is not None
+                and url.scheme != "https"
+                and url.host not in {"localhost", "127.0.0.1", "[::1]", "::1"}
+            ):
+                raise ValueError(f"{name} must use HTTPS except on a loopback host")
+
+        client_id = (self.mcp_oauth_introspection_client_id or "").strip()
+        client_secret = (
+            self.mcp_oauth_introspection_client_secret.get_secret_value()
+            if self.mcp_oauth_introspection_client_secret is not None
+            else ""
+        )
+        configured = (
+            self.mcp_oauth_introspection_url is not None,
+            bool(client_id),
+            bool(client_secret),
+        )
+        if any(configured) and not all(configured):
+            raise ValueError(
+                "OAuth introspection URL, client ID, and client secret must be configured together"
+            )
+        if self.mcp_oauth_introspection_timeout_seconds <= 0:
+            raise ValueError("MCP OAuth introspection timeout must be positive")
+        if not 0 <= self.mcp_oauth_clock_skew_seconds <= 300:
+            raise ValueError("MCP OAuth clock skew must be between 0 and 300 seconds")
+        if self.mcp_oauth_max_token_lifetime_seconds <= 0:
+            raise ValueError("MCP OAuth maximum token lifetime must be positive")
+
+        if self.app_env in {"staging", "production"}:
+            if not all(configured):
+                raise ValueError(f"{self.app_env} requires OAuth token introspection credentials")
+            deployment_urls = (
+                self.mcp_public_url,
+                self.mcp_oauth_issuer_url,
+                self.mcp_oauth_introspection_url,
+            )
+            if any(url is not None and url.scheme != "https" for url in deployment_urls):
+                raise ValueError("deployed MCP OAuth endpoints must use HTTPS")
+
+    @property
+    def mcp_oauth_introspection_configured(self) -> bool:
+        return self.mcp_oauth_introspection_url is not None
 
 
 @lru_cache

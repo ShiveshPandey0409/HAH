@@ -5,6 +5,7 @@ import hmac
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import or_, select, update
@@ -16,7 +17,10 @@ from app.models.user import User
 
 TASKS_CREATE_SCOPE = "tasks:create"
 SUBMISSIONS_VERIFY_SCOPE = "submissions:verify"
-SUPPORTED_SCOPES = frozenset({TASKS_CREATE_SCOPE, SUBMISSIONS_VERIFY_SCOPE})
+SUBMISSIONS_APPROVE_SCOPE = "submissions:approve"
+SUPPORTED_SCOPES = frozenset(
+    {TASKS_CREATE_SCOPE, SUBMISSIONS_VERIFY_SCOPE, SUBMISSIONS_APPROVE_SCOPE}
+)
 TOKEN_PREFIX = "hah"
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
@@ -31,6 +35,10 @@ class InvalidAPIKeyError(Exception):
 
 class MissingAPIScopeError(Exception):
     pass
+
+
+class ScopedPrincipal(Protocol):
+    scopes: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +147,6 @@ async def authenticate_api_token(token: str) -> APIClientPrincipal:
         )
 
 
-def require_api_scope(principal: APIClientPrincipal, scope: str) -> None:
+def require_api_scope(principal: ScopedPrincipal, scope: str) -> None:
     if scope not in principal.scopes:
-        raise MissingAPIScopeError(f"API client lacks required scope: {scope}")
+        raise MissingAPIScopeError(f"delegated client lacks required scope: {scope}")

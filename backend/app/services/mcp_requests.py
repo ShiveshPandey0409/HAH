@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redaction import REDACTED, canonical_json_fingerprint, redact_sensitive_data
 from app.db.session import AsyncSessionFactory
+from app.mcp.oauth import MCP_ACCESS_SCOPE, OAuthPrincipal
 from app.models.claim import BountyClaim
-from app.models.integration import APIClient, MCPRequest, RequestStatus
+from app.models.integration import MCPRequest, RequestStatus
 from app.models.submission import Submission, VerificationMethod
 from app.models.task import Bounty, Task
 from app.schemas.submission import (
@@ -28,6 +29,7 @@ from app.schemas.webhook import (
     WebhookEventType,
 )
 from app.services.api_clients import (
+    SUBMISSIONS_APPROVE_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
     APIClientPrincipal,
@@ -54,8 +56,17 @@ MCPMethod = Literal["create_task", "verify_submission"]
 logger = logging.getLogger(__name__)
 
 
+type MCPPrincipal = APIClientPrincipal | OAuthPrincipal
+
+
 class IdempotencyConflictError(Exception):
     pass
+
+
+def _require_tool_scope(principal: MCPPrincipal, scope: str) -> None:
+    if isinstance(principal, OAuthPrincipal):
+        require_api_scope(principal, MCP_ACCESS_SCOPE)
+    require_api_scope(principal, scope)
 
 
 class MCPRequestExecutionError(Exception):
@@ -99,34 +110,60 @@ def _normalize_idempotency_key(value: str) -> str:
 async def _reserve_request(
     *,
     new_request_id: UUID,
-    api_client_id: UUID,
+    principal: MCPPrincipal,
     method: str,
     idempotency_key: str,
     request_data: dict[str, Any],
 ) -> UUID:
-    async with AsyncSessionFactory() as session:
-        request_id = await session.scalar(
-            insert(MCPRequest)
-            .values(
-                id=new_request_id,
-                api_client_id=api_client_id,
-                method=method,
-                idempotency_key=idempotency_key,
-                status=RequestStatus.STARTED,
-                request_data=request_data,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[MCPRequest.api_client_id, MCPRequest.idempotency_key]
-            )
-            .returning(MCPRequest.id)
+    auth_scopes = sorted(principal.scopes)
+    values: dict[str, Any] = {
+        "id": new_request_id,
+        "actor_user_id": principal.creator_id,
+        "auth_scopes": auth_scopes,
+        "method": method,
+        "idempotency_key": idempotency_key,
+        "status": RequestStatus.STARTED,
+        "request_data": request_data,
+    }
+    if isinstance(principal, APIClientPrincipal):
+        values.update(
+            api_client_id=principal.client_id,
+            oauth_delegation_id=None,
+            oauth_consent_version=None,
+            oauth_authorization_id=None,
         )
-        if request_id is None:
-            request_id = await session.scalar(
-                select(MCPRequest.id).where(
-                    MCPRequest.api_client_id == api_client_id,
-                    MCPRequest.idempotency_key == idempotency_key,
-                )
+        conflict_columns = [MCPRequest.api_client_id, MCPRequest.idempotency_key]
+        conflict_where = None
+        existing_request = (
+            MCPRequest.api_client_id == principal.client_id,
+            MCPRequest.idempotency_key == idempotency_key,
+        )
+    else:
+        values.update(
+            api_client_id=None,
+            oauth_delegation_id=principal.delegation_id,
+            oauth_consent_version=principal.consent_version,
+            oauth_authorization_id=principal.authorization_id,
+        )
+        conflict_columns = [MCPRequest.oauth_delegation_id, MCPRequest.idempotency_key]
+        conflict_where = MCPRequest.oauth_delegation_id.is_not(None)
+        existing_request = (
+            MCPRequest.oauth_delegation_id == principal.delegation_id,
+            MCPRequest.idempotency_key == idempotency_key,
+        )
+
+    async with AsyncSessionFactory() as session:
+        reservation = (
+            insert(MCPRequest)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=conflict_columns,
+                index_where=conflict_where,
             )
+        )
+        request_id = await session.scalar(reservation.returning(MCPRequest.id))
+        if request_id is None:
+            request_id = await session.scalar(select(MCPRequest.id).where(*existing_request))
         await session.commit()
 
     if request_id is None:
@@ -134,8 +171,37 @@ async def _reserve_request(
     return request_id
 
 
+def _authorization_snapshot_matches(request: MCPRequest, principal: MCPPrincipal) -> bool:
+    if request.actor_user_id != principal.creator_id:
+        return False
+    if isinstance(principal, APIClientPrincipal):
+        return (
+            request.api_client_id == principal.client_id
+            and request.oauth_delegation_id is None
+            and request.oauth_consent_version is None
+            and request.oauth_authorization_id is None
+            and request.auth_scopes == sorted(principal.scopes)
+        )
+    return (
+        request.api_client_id is None
+        and request.oauth_delegation_id == principal.delegation_id
+        and request.oauth_consent_version == principal.consent_version
+        and request.oauth_authorization_id == principal.authorization_id
+    )
+
+
+def _require_retry_authorization_snapshot(
+    request: MCPRequest,
+    principal: MCPPrincipal,
+) -> None:
+    if not _authorization_snapshot_matches(request, principal):
+        raise IdempotencyConflictError(
+            "idempotency key belongs to a different authorization snapshot"
+        )
+
+
 def _task_request_data(
-    principal: APIClientPrincipal,
+    principal: MCPPrincipal,
     data: MCPTaskCreateInput,
 ) -> dict[str, Any]:
     raw_input = {
@@ -209,7 +275,7 @@ def _task_error(error: Exception) -> tuple[str, str]:
     if isinstance(error, CreatorNotFoundError):
         return "task creator no longer exists", "task_creator_not_found"
     if isinstance(error, CreatorCannotCreateTasksError):
-        return "API client owner cannot create tasks", "task_creator_ineligible"
+        return "delegated user cannot create tasks", "task_creator_ineligible"
     if isinstance(error, TaskValidationError):
         return "task or bounty violates a database rule", "task_validation_failed"
     return "task creation failed", "task_creation_failed"
@@ -279,14 +345,8 @@ async def _mark_failed(
         request.response_data = None
         request.error_message = error_message
         request.completed_at = datetime.now(UTC)
-        creator_id = await session.scalar(
-            select(APIClient.creator_id).where(APIClient.id == request.api_client_id)
-        )
-        if (
-            submission_id is not None
-            and creator_id is not None
-            and request.method == VERIFY_SUBMISSION_METHOD
-        ):
+        creator_id = request.actor_user_id
+        if submission_id is not None and request.method == VERIFY_SUBMISSION_METHOD:
             owned_submission_id = await session.scalar(
                 select(Submission.id)
                 .join(BountyClaim, BountyClaim.id == Submission.claim_id)
@@ -298,30 +358,29 @@ async def _mark_failed(
                 )
             )
             request.submission_id = owned_submission_id
-        if creator_id is not None:
-            try:
-                async with session.begin_nested():
-                    await _enqueue_mcp_request_completed(
-                        session,
-                        request=request,
-                        creator_id=creator_id,
-                        error_code=error_code,
-                    )
-            except Exception:
-                logger.warning(
-                    "Could not enqueue failed MCP request event for %s",
-                    request_id,
+        try:
+            async with session.begin_nested():
+                await _enqueue_mcp_request_completed(
+                    session,
+                    request=request,
+                    creator_id=creator_id,
+                    error_code=error_code,
                 )
+        except Exception:
+            logger.warning(
+                "Could not enqueue failed MCP request event for %s",
+                request_id,
+            )
         await session.commit()
 
 
 async def create_task_from_mcp(
-    principal: APIClientPrincipal,
+    principal: MCPPrincipal,
     *,
     idempotency_key: str,
     data: MCPTaskCreateInput,
 ) -> TaskResponse:
-    require_api_scope(principal, TASKS_CREATE_SCOPE)
+    _require_tool_scope(principal, TASKS_CREATE_SCOPE)
     normalized_key = _normalize_idempotency_key(idempotency_key)
     request_data = _task_request_data(principal, data)
     request_id = uuid4()
@@ -329,7 +388,7 @@ async def create_task_from_mcp(
     try:
         request_id = await _reserve_request(
             new_request_id=request_id,
-            api_client_id=principal.client_id,
+            principal=principal,
             method=CREATE_TASK_METHOD,
             idempotency_key=normalized_key,
             request_data=request_data,
@@ -350,6 +409,7 @@ async def create_task_from_mcp(
                     request,
                     creator_id=principal.creator_id,
                 )
+            _require_retry_authorization_snapshot(request, principal)
 
             request.status = RequestStatus.STARTED
             request.response_data = None
@@ -406,7 +466,7 @@ async def create_task_from_mcp(
 
 
 def _verification_request_data(
-    principal: APIClientPrincipal,
+    principal: MCPPrincipal,
     *,
     submission_id: UUID,
     result: VerificationResult,
@@ -432,7 +492,7 @@ def _verification_request_data(
 
 
 async def verify_submission_from_mcp(
-    principal: APIClientPrincipal,
+    principal: MCPPrincipal,
     *,
     idempotency_key: str,
     submission_id: UUID,
@@ -440,7 +500,9 @@ async def verify_submission_from_mcp(
     checks: dict[str, Any],
     failure_reason: str | None = None,
 ) -> SubmissionResponse:
-    require_api_scope(principal, SUBMISSIONS_VERIFY_SCOPE)
+    _require_tool_scope(principal, SUBMISSIONS_VERIFY_SCOPE)
+    if result == "passed":
+        require_api_scope(principal, SUBMISSIONS_APPROVE_SCOPE)
     normalized_key = _normalize_idempotency_key(idempotency_key)
     request_data = _verification_request_data(
         principal,
@@ -454,7 +516,7 @@ async def verify_submission_from_mcp(
     try:
         request_id = await _reserve_request(
             new_request_id=request_id,
-            api_client_id=principal.client_id,
+            principal=principal,
             method=VERIFY_SUBMISSION_METHOD,
             idempotency_key=normalized_key,
             request_data=request_data,
@@ -473,6 +535,7 @@ async def verify_submission_from_mcp(
                 if not isinstance(request.response_data, dict):
                     raise RuntimeError("stored MCP response is invalid")
                 return SubmissionResponse.model_validate(request.response_data)
+            _require_retry_authorization_snapshot(request, principal)
 
             request.status = RequestStatus.STARTED
             request.response_data = None

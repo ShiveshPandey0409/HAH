@@ -3,23 +3,36 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from mcp import Client
+from mcp.server.auth.provider import AccessToken
 from mcp.types import LATEST_PROTOCOL_VERSION
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.db.session import AsyncSessionFactory
 from app.main import app
-from app.mcp.auth import use_api_client
-from app.models.integration import APIClient, IntegrationStatus, MCPRequest, RequestStatus
+from app.mcp.oauth import MCP_ACCESS_SCOPE, OAuthPrincipal, use_oauth_principal
+from app.mcp.server import create_mcp_server
+from app.models.integration import (
+    APIClient,
+    IntegrationStatus,
+    MCPRequest,
+    OAuthDelegation,
+    OAuthIdentity,
+    RequestStatus,
+)
 from app.models.task import Bounty, Task
 from app.schemas.task import POSTGRES_BIGINT_MAX, MCPTaskCreateInput
 from app.services import mcp_requests
 from app.services.api_clients import (
+    SUBMISSIONS_APPROVE_SCOPE,
+    SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
     APIClientPrincipal,
     InvalidAPIKeyError,
@@ -27,10 +40,12 @@ from app.services.api_clients import (
     issue_api_client,
 )
 from app.services.mcp_requests import (
+    IdempotencyConflictError,
     MCPRequestExecutionError,
     _mark_failed,
     create_task_from_mcp,
 )
+from app.services.oauth_delegations import grant_oauth_delegation
 from tests.test_tasks import bounty_payload, create_user, task_payload
 
 
@@ -60,34 +75,73 @@ async def issue_client(
     creator_id: UUID,
     *,
     scopes: set[str] | None = None,
-) -> tuple[str, APIClientPrincipal]:
+) -> tuple[str, OAuthPrincipal]:
+    settings = get_settings()
+    oauth_client_id = f"test-agent-{uuid4()}"
+    subject = f"test-subject-{uuid4()}"
+    approved_scopes = {MCP_ACCESS_SCOPE, *(scopes if scopes is not None else {TASKS_CREATE_SCOPE})}
+    authorization_id = f"test-authorization-{uuid4()}"
+    async with AsyncSessionFactory() as session:
+        identity = OAuthIdentity(
+            user_id=creator_id,
+            issuer=str(settings.mcp_oauth_issuer_url),
+            subject=subject,
+            status=IntegrationStatus.ACTIVE,
+        )
+        session.add(identity)
+        await session.flush()
+        delegation = OAuthDelegation(
+            identity_id=identity.id,
+            oauth_client_id=oauth_client_id,
+            approved_scopes=sorted(approved_scopes),
+            status=IntegrationStatus.ACTIVE,
+            consent_version=1,
+            authorization_id=authorization_id,
+        )
+        session.add(delegation)
+        await session.flush()
+        principal = OAuthPrincipal(
+            identity_id=identity.id,
+            delegation_id=delegation.id,
+            user_id=creator_id,
+            client_id=oauth_client_id,
+            issuer=identity.issuer,
+            subject=subject,
+            authorization_id=authorization_id,
+            scopes=frozenset(approved_scopes),
+            consent_version=1,
+        )
+        await session.commit()
+    return f"oauth-test-token-{uuid4()}", principal
+
+
+async def issue_legacy_client(creator_id: UUID) -> tuple[str, APIClientPrincipal]:
     async with AsyncSessionFactory() as session:
         issued = await issue_api_client(
             session,
             creator_id=creator_id,
-            name="Test agent",
-            scopes=scopes if scopes is not None else {TASKS_CREATE_SCOPE},
+            name="Legacy test agent",
+            scopes={TASKS_CREATE_SCOPE},
         )
-    principal = APIClientPrincipal(
+    return issued.token, APIClientPrincipal(
         client_id=issued.client.id,
         creator_id=creator_id,
         scopes=frozenset(issued.client.scopes),
     )
-    return issued.token, principal
 
 
 async def call_create_tool(
-    principal: APIClientPrincipal,
+    principal: OAuthPrincipal,
     arguments: dict[str, object],
 ):
-    with use_api_client(principal):
+    with use_oauth_principal(principal):
         async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
             return await mcp_client.call_tool("create_task", arguments)
 
 
 async def test_api_key_is_hashed_authenticated_and_disabled(client: AsyncClient) -> None:
     creator_id = await create_user(client)
-    token, principal = await issue_client(creator_id)
+    token, principal = await issue_legacy_client(creator_id)
     secret = token.rsplit(".", 1)[1]
 
     async with AsyncSessionFactory() as session:
@@ -132,8 +186,31 @@ async def test_api_key_is_hashed_authenticated_and_disabled(client: AsyncClient)
 
 async def test_authenticated_mcp_http_transport_and_host_protection(client: AsyncClient) -> None:
     creator_id = await create_user(client)
-    token, _ = await issue_client(creator_id)
-    transport = ASGITransport(app=app)
+    token, principal = await issue_client(creator_id)
+
+    class StaticTokenVerifier:
+        async def verify_token(self, candidate: str) -> AccessToken | None:
+            if candidate != token:
+                return None
+            return AccessToken(
+                token=candidate,
+                client_id=principal.client_id,
+                scopes=sorted(principal.scopes),
+                expires_at=int(datetime.now(UTC).timestamp()) + 600,
+                resource=str(get_settings().mcp_public_url),
+                subject=principal.subject,
+                claims={
+                    "iss": principal.issuer,
+                    "oauth_identity_id": str(principal.identity_id),
+                    "oauth_delegation_id": str(principal.delegation_id),
+                    "oauth_authorization_id": principal.authorization_id,
+                    "user_id": str(principal.user_id),
+                    "oauth_consent_version": principal.consent_version,
+                },
+            )
+
+    mcp_server, mcp_http_app = create_mcp_server(token_verifier=StaticTokenVerifier())
+    transport = ASGITransport(app=mcp_http_app)
 
     protocol_headers = {
         "Authorization": f"Bearer {token}",
@@ -141,15 +218,33 @@ async def test_authenticated_mcp_http_transport_and_host_protection(client: Asyn
         "Content-Type": "application/json",
     }
 
-    async with app.state.mcp_server.session_manager.run():
+    async with mcp_server.session_manager.run():
         async with AsyncClient(
             transport=transport,
             base_url="http://127.0.0.1:9999",
         ) as mcp_http:
+            metadata_path = "/.well-known/oauth-protected-resource/mcp"
+            metadata = await mcp_http.get(
+                metadata_path,
+                headers={"Origin": "https://agent.example"},
+            )
+            metadata_options = await mcp_http.options(
+                metadata_path,
+                headers={
+                    "Origin": "https://agent.example",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
             missing = await mcp_http.post("/mcp", json={})
             invalid = await mcp_http.post(
                 "/mcp",
                 headers={"Authorization": f"Bearer {token}wrong"},
+                json={},
+            )
+            query_token = await mcp_http.post(f"/mcp?access_token={token}", json={})
+            legacy_key = await mcp_http.post(
+                "/mcp",
+                headers={"Authorization": "Bearer hah.legacy.secret"},
                 json={},
             )
             initialized = await mcp_http.post(
@@ -191,9 +286,32 @@ async def test_authenticated_mcp_http_transport_and_host_protection(client: Asyn
                 json={"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}},
             )
 
-    assert missing.status_code == invalid.status_code == 401
+    assert metadata.status_code == 200
+    assert metadata.headers["access-control-allow-origin"] == "*"
+    assert metadata.json() == {
+        "resource": str(get_settings().mcp_public_url),
+        "authorization_servers": [str(get_settings().mcp_oauth_issuer_url)],
+        "scopes_supported": [
+            MCP_ACCESS_SCOPE,
+            TASKS_CREATE_SCOPE,
+            SUBMISSIONS_VERIFY_SCOPE,
+            SUBMISSIONS_APPROVE_SCOPE,
+        ],
+        "bearer_methods_supported": ["header"],
+    }
+    assert metadata_options.status_code == 200
+    assert metadata_options.headers["access-control-allow-origin"] == "*"
+    assert "GET" in metadata_options.headers["access-control-allow-methods"]
+    assert missing.status_code == invalid.status_code == query_token.status_code == 401
+    assert legacy_key.status_code == 401
     assert missing.json() == invalid.json()
-    assert missing.headers["www-authenticate"] == "Bearer"
+    challenge = missing.headers["www-authenticate"]
+    assert challenge.startswith("Bearer ")
+    assert 'resource_metadata="http://127.0.0.1:8000/' in challenge
+    assert f'scope="{MCP_ACCESS_SCOPE}"' in challenge
+    assert TASKS_CREATE_SCOPE not in challenge
+    assert SUBMISSIONS_VERIFY_SCOPE not in challenge
+    assert SUBMISSIONS_APPROVE_SCOPE not in challenge
     assert initialized.status_code == 200
     assert listed.json()["result"]["tools"][0]["name"] == "create_task"
     assert called.json()["result"]["structuredContent"]["created_via"] == "mcp"
@@ -205,7 +323,7 @@ async def test_create_task_tool_schema_replay_and_safe_audit(client: AsyncClient
     token, principal = await issue_client(creator_id)
     arguments = mcp_arguments()
 
-    with use_api_client(principal):
+    with use_oauth_principal(principal):
         async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
             listed = await mcp_client.list_tools()
             tool = next(item for item in listed.tools if item.name == "create_task")
@@ -234,6 +352,12 @@ async def test_create_task_tool_schema_replay_and_safe_audit(client: AsyncClient
         request = await session.scalar(select(MCPRequest))
         assert request is not None
         assert request.status == RequestStatus.SUCCEEDED
+        assert request.api_client_id is None
+        assert request.oauth_delegation_id == principal.delegation_id
+        assert request.actor_user_id == creator_id
+        assert request.auth_scopes == [MCP_ACCESS_SCOPE, TASKS_CREATE_SCOPE]
+        assert request.oauth_consent_version == principal.consent_version
+        assert request.oauth_authorization_id == principal.authorization_id
         assert str(request.task_id) == created.structured_content["id"]
         assert request.request_data["bounty_count"] == 1
         assert "description" not in request.request_data
@@ -244,7 +368,6 @@ async def test_create_task_tool_schema_replay_and_safe_audit(client: AsyncClient
             {"request": request.request_data, "response": request.response_data}
         )
         assert token not in serialized_audit
-        assert token.rsplit(".", 1)[1] not in serialized_audit
 
 
 async def test_create_task_scope_denied_before_audit(client: AsyncClient) -> None:
@@ -351,7 +474,10 @@ async def test_failed_request_is_redacted_and_retryable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     creator_id = await create_user(client)
-    token, principal = await issue_client(creator_id)
+    token, principal = await issue_client(
+        creator_id,
+        scopes={TASKS_CREATE_SCOPE, SUBMISSIONS_VERIFY_SCOPE},
+    )
     arguments = mcp_arguments(idempotency_key="retry-task")
     data = task_command(arguments)
     real_create_task = mcp_requests.create_task
@@ -381,13 +507,74 @@ async def test_failed_request_is_redacted_and_retryable(
         assert token not in json.dumps(request.request_data)
         assert await session.scalar(select(func.count()).select_from(Task)) == 0
 
-    retried = await create_task_from_mcp(
+    refreshed_principal = replace(
         principal,
+        scopes=frozenset({MCP_ACCESS_SCOPE, TASKS_CREATE_SCOPE}),
+    )
+    retried = await create_task_from_mcp(
+        refreshed_principal,
         idempotency_key=str(arguments["idempotency_key"]),
         data=data,
     )
     assert retried.created_via == "mcp"
     assert call_count == 2
+
+
+async def test_failed_request_cannot_retry_under_a_new_oauth_authorization(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    creator_id = await create_user(client)
+    _, principal = await issue_client(creator_id)
+    arguments = mcp_arguments(idempotency_key="authorization-snapshot-retry")
+    data = task_command(arguments)
+    call_count = 0
+
+    async def fail_creation(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("downstream unavailable")
+
+    monkeypatch.setattr(mcp_requests, "create_task", fail_creation)
+    with pytest.raises(MCPRequestExecutionError):
+        await create_task_from_mcp(
+            principal,
+            idempotency_key=str(arguments["idempotency_key"]),
+            data=data,
+        )
+
+    new_authorization_id = f"test-authorization-{uuid4()}"
+    async with AsyncSessionFactory() as session:
+        delegation = await grant_oauth_delegation(
+            session,
+            user_id=principal.user_id,
+            issuer=principal.issuer,
+            subject=principal.subject,
+            oauth_client_id=principal.client_id,
+            authorization_id=new_authorization_id,
+            scopes=principal.scopes,
+        )
+    reauthorized = replace(
+        principal,
+        authorization_id=new_authorization_id,
+        consent_version=delegation.consent_version,
+    )
+
+    with pytest.raises(IdempotencyConflictError, match="authorization snapshot"):
+        await create_task_from_mcp(
+            reauthorized,
+            idempotency_key=str(arguments["idempotency_key"]),
+            data=data,
+        )
+
+    assert call_count == 1
+    async with AsyncSessionFactory() as session:
+        request = await session.scalar(select(MCPRequest))
+        assert request is not None
+        assert request.status == RequestStatus.FAILED
+        assert request.oauth_consent_version == principal.consent_version
+        assert request.oauth_authorization_id == principal.authorization_id
+        assert await session.scalar(select(func.count()).select_from(Task)) == 0
 
 
 async def test_reservation_failure_returns_only_stable_safe_error(
