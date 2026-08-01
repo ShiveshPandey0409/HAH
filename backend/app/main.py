@@ -46,6 +46,8 @@ def create_app() -> FastAPI:
     try:
         application.state.webhook_runtime = runtime_from_settings()
     except RuntimeError:
+        if settings.app_env in {"staging", "production"}:
+            raise
         application.state.webhook_runtime = None
     application.add_exception_handler(RequestValidationError, safe_request_validation_error)
     application.include_router(api_router)

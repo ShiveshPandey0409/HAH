@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from app import main as main_module
 from app.main import create_app, lifespan
 from app.mcp import auth as mcp_auth
 
@@ -18,6 +19,37 @@ def test_application_factory_builds_fresh_mcp_session_manager() -> None:
 
     assert first.state.mcp_server is not second.state.mcp_server
     assert first.state.mcp_server.session_manager is not second.state.mcp_server.session_manager
+
+
+def test_application_factory_allows_missing_webhook_runtime_in_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main_module.settings, "app_env", "development")
+    monkeypatch.setattr(
+        main_module,
+        "runtime_from_settings",
+        Mock(side_effect=RuntimeError("invalid webhook runtime")),
+    )
+
+    application = main_module.create_app()
+
+    assert application.state.webhook_runtime is None
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_application_factory_rejects_invalid_webhook_runtime_in_deployments(
+    monkeypatch: pytest.MonkeyPatch,
+    app_env: str,
+) -> None:
+    monkeypatch.setattr(main_module.settings, "app_env", app_env)
+    monkeypatch.setattr(
+        main_module,
+        "runtime_from_settings",
+        Mock(side_effect=RuntimeError("invalid webhook runtime")),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid webhook runtime"):
+        main_module.create_app()
 
 
 async def test_unknown_paths_return_404_without_mcp_authentication(
