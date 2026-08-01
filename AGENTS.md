@@ -18,7 +18,7 @@ Brands will create tasks an agent using MCP. The agent pays the human through Pr
 ### Human
 
 1. Sign up.
-2. Connect a warm account.
+2. Submit only a public Reddit or LinkedIn account URL for enrichment; no username, social login, or OAuth.
 3. Find and accept a task.
 4. Complete the task and mark it done.
 5. Get paid.

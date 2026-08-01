@@ -3,8 +3,8 @@ flowchart TB
 
     subgraph FREELANCER["FREELANCER SIDE"]
       direction LR
-      SA["<b>SOCIAL_ACCOUNTS</b><br/>Reddit / LinkedIn<br/>followers, following, karma"]
-      FEED["<b>ELIGIBLE FEED</b><br/><i>get_eligible_bounties()</i><br/>verified platform + range"]
+      SA["<b>SOCIAL_ACCOUNTS</b><br/>public account URL only<br/>followers, following, karma"]
+      FEED["<b>ELIGIBLE FEED</b><br/><i>get_eligible_bounties()</i><br/>validated public profile + range"]
       BC["<b>BOUNTY_CLAIMS</b><br/>one claimed slot<br/>claimed → approved → paid"]
       S["<b>SUBMISSIONS</b><br/>revisions + verification"]
       SP["<b>SUBMISSION_PROOFS</b><br/>URL / screenshot / image"]
@@ -36,7 +36,7 @@ flowchart TB
       WE --> WD
     end
 
-    U -->|"connects accounts"| SA
+    U -->|"submits public profile"| SA
     U -->|"creates"| T
     B -->|"appears when eligible"| FEED
     B -->|"fills a slot"| BC

@@ -41,10 +41,9 @@ The person or brand funding the marketing work. A creator can:
 
 The human completing the work. A freelancer can:
 
-- connect a Reddit account, a LinkedIn account, or both;
-- provide the account handle used for enrichment;
+- submit a public Reddit account URL, a public LinkedIn account URL, or both;
 - have followers, following, and Reddit karma retrieved for eligibility checks;
-- see only bounties matching a verified social account and influencer range;
+- see only bounties matching a validated public profile and influencer range;
 - claim an available bounty slot;
 - complete the post or comment personally;
 - submit the requested proof;
@@ -79,20 +78,21 @@ and redacted responses only. It does not store card number, CVV, or expiry.
    number of slots, influencer range, proof requirements, and optional deadline.
 5. The platform ensures the total value of all non-cancelled bounty slots does not
    exceed the task budget.
-6. A freelancer signs up and connects Reddit and/or LinkedIn.
-7. Social-account metrics are enriched and the account is verified.
-8. The freelancer feed shows only matching open tasks with remaining slots.
-9. The freelancer claims one slot. The database checks the platform, verified
+6. A freelancer signs up and submits a public Reddit and/or LinkedIn account URL.
+7. The platform validates and normalizes the URL.
+8. The enrichment provider validates the public profile and returns its metrics.
+9. The freelancer feed shows only matching open tasks with remaining slots.
+10. The freelancer claims one slot. The database checks the platform, validated
    account, influencer range, deadline, and remaining capacity atomically.
-10. The freelancer completes the work and submits the required URLs or files.
-11. The submission is verified automatically, manually, or through MCP.
-12. Verification cannot pass until every required proof type is present.
-13. A passed submission becomes approved for payment.
-14. The platform creates one idempotent Prava payout for the exact bounty reward.
-15. Prava attempts can be retried without creating a second logical payout.
-16. A successful payout marks the freelancer's claim as paid and updates the
+11. The freelancer completes the work and submits the required URLs or files.
+12. The submission is verified automatically, manually, or through MCP.
+13. Verification cannot pass until every required proof type is present.
+14. A passed submission becomes approved for payment.
+15. The platform creates one idempotent Prava payout for the exact bounty reward.
+16. Prava attempts can be retried without creating a second logical payout.
+17. A successful payout marks the freelancer's claim as paid and updates the
     creator's task authorization usage.
-17. Verification and payment results are delivered to the creator webhook.
+18. Verification and payment results are delivered to the creator webhook.
 
 ## Eligibility rules
 
@@ -100,13 +100,16 @@ A freelancer can see and claim a bounty only when:
 
 - the task and bounty are open;
 - neither applicable deadline has passed;
-- the freelancer has a verified account on the required platform;
+- the freelancer has a provider-validated public profile on the required platform;
 - the selected account falls within the configured follower or karma range;
 - a bounty slot remains available;
 - the freelancer has not already claimed that bounty.
 
 Following count is stored as an enrichment signal but is not currently a bounty
 filter. LinkedIn uses follower ranges. Reddit can use follower or karma ranges.
+
+The freelancer is asked only for `platform` and the public account URL. The platform
+does not separately ask for a username, handle, account ID, password, or social token.
 
 ## Proof and verification
 
@@ -144,6 +147,8 @@ payment outcomes to the creator or their agent.
 - Social platforms other than Reddit and LinkedIn
 - Actions other than posting and commenting
 - Automatically posting from the freelancer's social account
+- Reddit or LinkedIn OAuth, login, account connection, or posting permission
+- Storing Reddit or LinkedIn access tokens, refresh tokens, passwords, or cookies
 - Storing raw payment-card credentials
 - Filtering bounties by criteria other than the configured influencer range
 
