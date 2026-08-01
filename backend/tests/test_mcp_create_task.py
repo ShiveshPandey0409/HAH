@@ -235,6 +235,11 @@ async def test_create_task_tool_schema_replay_and_safe_audit(client: AsyncClient
         assert request is not None
         assert request.status == RequestStatus.SUCCEEDED
         assert str(request.task_id) == created.structured_content["id"]
+        assert request.request_data["bounty_count"] == 1
+        assert "description" not in request.request_data
+        assert "bounties" not in request.request_data
+        assert request.response_data["task_id"] == created.structured_content["id"]
+        assert "description" not in request.response_data
         serialized_audit = json.dumps(
             {"request": request.request_data, "response": request.response_data}
         )
@@ -312,7 +317,8 @@ async def test_idempotency_conflict_preserves_first_result(client: AsyncClient) 
         request = await session.scalar(select(MCPRequest))
         assert request is not None
         assert request.status == RequestStatus.SUCCEEDED
-        assert request.response_data == created.structured_content
+        assert request.response_data["task_id"] == created.structured_content["id"]
+        assert request.response_data["status"] == "created"
 
 
 async def test_concurrent_duplicate_mcp_calls_create_one_task(client: AsyncClient) -> None:
@@ -426,6 +432,9 @@ async def test_successful_replay_does_not_execute_and_cannot_be_marked_failed(
         idempotency_key=str(arguments["idempotency_key"]),
         data=data,
     )
+    opened = await client.post(f"/v1/tasks/{created.id}/open")
+    assert opened.status_code == 200
+    assert opened.json()["status"] == "open"
 
     async def must_not_execute(*args, **kwargs):
         raise AssertionError("successful request executed twice")

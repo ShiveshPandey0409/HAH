@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from typing import Any, Protocol
 
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from app.core.redaction import redact_sensitive_data
 from app.models.task import SocialPlatform
 
 POSTGRES_BIGINT_MIN = -9_223_372_036_854_775_808
@@ -112,24 +112,6 @@ class UnavailableEnrichmentProvider:
 
 
 _DEFAULT_PROVIDER = UnavailableEnrichmentProvider()
-_SENSITIVE_KEY_PARTS = frozenset(
-    {
-        "accesstoken",
-        "apikey",
-        "authorization",
-        "bearer",
-        "clientsecret",
-        "cookie",
-        "credential",
-        "password",
-        "privatekey",
-        "refreshtoken",
-        "secret",
-        "sessiontoken",
-        "signingkey",
-        "token",
-    }
-)
 
 
 def get_enrichment_provider(request: Request) -> EnrichmentProvider:
@@ -177,15 +159,4 @@ def validate_provider_result(
 
 
 def redact_public_data(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
-            if any(part in normalized_key for part in _SENSITIVE_KEY_PARTS):
-                redacted[str(key)] = "[REDACTED]"
-            else:
-                redacted[str(key)] = redact_public_data(item)
-        return redacted
-    if isinstance(value, (list, tuple)):
-        return [redact_public_data(item) for item in value]
-    return value
+    return redact_sensitive_data(value)

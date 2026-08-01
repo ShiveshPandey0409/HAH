@@ -51,25 +51,33 @@ PostgreSQL database, and the full test suite passes.
 
 ## Milestone 3 — submissions, verification, MCP, and webhooks (Plans 05, 07, 08)
 
-- [ ] Map baseline `submissions`, `submission_proofs`, `webhook_endpoints`, and
+- [x] Map baseline `submissions`, `submission_proofs`, `webhook_endpoints`, and
   `webhook_deliveries`; add migrations only for required post-baseline changes.
-- [ ] Implement atomic proof submission and revision handling; add
+- [x] Implement atomic proof submission and revision handling; add
   `POST /v1/claims/{claim_id}/submissions`.
-- [ ] Implement one verification service for automatic, manual, and MCP methods;
+- [x] Implement one verification service for automatic, manual, and MCP methods;
   add `POST /v1/submissions/{submission_id}/verification`.
-- [ ] Implement MCP `verify_submission` through that service with scope checks,
+- [x] Implement MCP `verify_submission` through that service with scope checks,
   audit records, redaction, and idempotency.
-- [ ] Add `PUT /v1/users/{creator_id}/webhook` and
+- [x] Add `PUT /v1/users/{creator_id}/webhook` and
   `GET /v1/users/{creator_id}/webhook`, transactional event creation, signing,
   retry/backoff, and concurrency-safe delivery.
-- [ ] Emit `submission.created`, `verification.completed`, and
+- [x] Emit `submission.created`, `verification.completed`, and
   `mcp_request.completed`; do not enqueue or emit payment work yet.
-- [ ] Test proof requirements, revisions, claim transitions, final-result
+- [x] Test proof requirements, revisions, claim transitions, final-result
   idempotency, HTTP/MCP parity, signatures, safe payloads, retry policy, and
   concurrent workers.
-- [ ] Run migrations from an empty database, run the complete test suite, smoke
+- [x] Run migrations from an empty database, run the complete test suite, smoke
   test claim-to-submission-to-verification-to-webhook over HTTP and MCP, then open
-  PR 3.
+  the milestone PR.
+- [ ] Product decision: if creators must request a second revision, add an explicit
+  `changes_requested` verification result and transition. The current approved
+  result set is `passed`, `failed`, or `review_required`; revision plumbing accepts
+  `changes_requested` but no public operation enters that claim state yet.
+- [x] Encrypt webhook destination URLs and signing secrets together at rest while
+  preserving PUT/GET response compatibility.
+- [ ] Before public deployment, decide whether GET should mask webhook capability
+  paths/query parameters. This is coupled to the pending HTTP-principal contract.
 
 ## Deferred — Prava payments (Plan 06)
 

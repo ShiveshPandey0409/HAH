@@ -18,8 +18,12 @@ from app.models import (  # noqa: F401
     BountyClaim,
     MCPRequest,
     SocialAccount,
+    Submission,
+    SubmissionProof,
     Task,
     User,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 
 config = context.config

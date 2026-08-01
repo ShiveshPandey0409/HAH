@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -76,6 +76,7 @@ class MCPRequest(Base):
             "idempotency_key",
             name="mcp_requests_api_client_id_idempotency_key_key",
         ),
+        Index("mcp_requests_submission_id_idx", "submission_id"),
         {"comment": "Idempotent audit record for agent calls."},
     )
 
@@ -111,6 +112,10 @@ class MCPRequest(Base):
     task_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("tasks.id", ondelete="RESTRICT"),
+    )
+    submission_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("submissions.id", ondelete="RESTRICT"),
     )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -33,6 +33,18 @@ For a database already created from `database/schema.sql`:
 Never run the baseline SQL and then `alembic upgrade` without stamping it first.
 Never stamp a database that did not pass the baseline validation.
 
+### Revision 0005 security adoption
+
+Baseline webhook rows do not contain a recoverable signing secret. Revision
+`20260802_0005` therefore disables those endpoints, replaces their destination with a
+non-routing sentinel, and replaces legacy delivery payload/error content with a small
+redacted tombstone. Reconfigure the endpoint with a new PUT after upgrading.
+
+The same revision replaces pre-0005 MCP request/response audit bodies with bounded
+structural summaries. Their idempotency keys remain reserved, but those historical
+requests are intentionally non-replayable. These redactions are irreversible; take the
+backup in step 1 if the historical integration data must be retained offline.
+
 ## Tests
 
 Integration tests accept only the database name `hire_human_test`. The fixture
