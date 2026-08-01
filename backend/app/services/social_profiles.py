@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,15 +148,37 @@ async def put_social_profile(
         "enrichment_request_id": enrichment_request_id,
         "enrichment_data": {},
     }
-    pending_statement = (
-        pg_insert(SocialAccount)
-        .values(user_id=user_id, platform=platform, **pending_values)
-        .on_conflict_do_update(
-            index_elements=[SocialAccount.user_id, SocialAccount.platform],
-            set_=pending_values,
-        )
-        .returning(SocialAccount.id)
+    pending_insert = pg_insert(SocialAccount).values(
+        user_id=user_id,
+        platform=platform,
+        **pending_values,
     )
+    same_profile_url = SocialAccount.profile_url == pending_insert.excluded.profile_url
+    pending_update_values = {
+        "profile_url": pending_insert.excluded.profile_url,
+        "enrichment_request_id": pending_insert.excluded.enrichment_request_id,
+    }
+    for field_name in (
+        "follower_count",
+        "following_count",
+        "reddit_post_karma",
+        "reddit_comment_karma",
+        "account_created_at",
+        "is_verified",
+        "verified_at",
+        "enrichment_provider",
+        "enriched_at",
+        "enrichment_data",
+    ):
+        pending_update_values[field_name] = case(
+            (same_profile_url, getattr(SocialAccount, field_name)),
+            else_=getattr(pending_insert.excluded, field_name),
+        )
+
+    pending_statement = pending_insert.on_conflict_do_update(
+        index_elements=[SocialAccount.user_id, SocialAccount.platform],
+        set_=pending_update_values,
+    ).returning(SocialAccount.id)
 
     try:
         pending = (await session.execute(pending_statement)).one()

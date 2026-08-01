@@ -321,7 +321,7 @@ async def test_normalized_profile_url_cannot_belong_to_two_users(
         (EnrichmentInvalidResponseError("bad provider payload"), 502),
     ],
 )
-async def test_provider_failure_keeps_replacement_pending_and_clears_old_metrics(
+async def test_provider_failure_for_changed_url_clears_old_metrics(
     client: AsyncClient,
     install_provider: Callable[[object], None],
     error: Exception,
@@ -355,6 +355,58 @@ async def test_provider_failure_keeps_replacement_pending_and_clears_old_metrics
     assert profile["enrichment_provider"] is None
 
 
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (EnrichmentUnavailableError("provider down"), 503),
+        (TimeoutError("provider timeout"), 503),
+        (EnrichmentRejectedError("provider rejected"), 502),
+        (EnrichmentInvalidResponseError("bad provider payload"), 502),
+    ],
+)
+async def test_provider_failure_for_same_normalized_url_preserves_verified_metrics(
+    client: AsyncClient,
+    install_provider: Callable[[object], None],
+    error: Exception,
+    expected_status: int,
+) -> None:
+    user = await create_user(client, email=f"same-profile-failure-{uuid4()}@example.com")
+    install_provider(FakeProvider())
+    initial = await client.put(
+        f"/v1/users/{user['id']}/social-profiles/reddit",
+        json={"profile_url": "https://reddit.com/user/existing-profile"},
+    )
+    assert initial.status_code == 200
+    initial_profile = initial.json()
+
+    install_provider(FakeProvider(error=error))
+    failed = await client.put(
+        f"/v1/users/{user['id']}/social-profiles/reddit",
+        json={"profile_url": "https://old.reddit.com/u/EXISTING-PROFILE/?utm_source=retry"},
+    )
+
+    assert failed.status_code == expected_status
+    listed = await client.get(f"/v1/users/{user['id']}/social-profiles")
+    assert listed.status_code == 200
+    profile = listed.json()[0]
+    for field_name in (
+        "id",
+        "profile_url",
+        "follower_count",
+        "following_count",
+        "reddit_post_karma",
+        "reddit_comment_karma",
+        "karma",
+        "account_created_at",
+        "is_verified",
+        "verified_at",
+        "enrichment_provider",
+        "enriched_at",
+    ):
+        assert profile[field_name] == initial_profile[field_name]
+    assert await read_enrichment_data(profile["id"]) == {"source": "fake"}
+
+
 async def test_valid_unverified_provider_result_returns_safe_pending_profile(
     client: AsyncClient,
     install_provider: Callable[[object], None],
@@ -378,6 +430,24 @@ async def test_valid_unverified_provider_result_returns_safe_pending_profile(
     assert response.json()["is_verified"] is False
     assert response.json()["verified_at"] is None
     assert response.json()["enriched_at"]
+
+
+async def test_verified_reddit_profile_accepts_karma_without_followers(
+    client: AsyncClient,
+    install_provider: Callable[[object], None],
+) -> None:
+    user = await create_user(client, email="karma-only-profile@example.com")
+    install_provider(FakeProvider(reddit_result(follower_count=None)))
+
+    response = await client.put(
+        f"/v1/users/{user['id']}/social-profiles/reddit",
+        json={"profile_url": "https://reddit.com/user/karma-only"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_verified"] is True
+    assert response.json()["follower_count"] is None
+    assert response.json()["karma"] == 10_000
 
 
 @pytest.mark.parametrize(

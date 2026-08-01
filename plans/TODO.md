@@ -31,7 +31,9 @@ PostgreSQL database, and the full test suite passes.
   test HTTP and MCP end to end, then open PR 1.
 - [ ] Before public deployment, define manual HTTP session authentication and
   replace caller-supplied user IDs with authenticated principals. The current
-  prototype intentionally authenticates MCP only.
+  prototype intentionally authenticates MCP only. Until that is fixed, anonymous
+  callers can overwrite another user's verified social profile or consume another
+  freelancer's lifetime bounty claim, causing availability and data loss.
 
 ## Milestone 2 — social enrichment, eligible feed, and claims (Plans 02 and 04)
 
