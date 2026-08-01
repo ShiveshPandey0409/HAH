@@ -54,3 +54,5 @@ uv run pytest
 ```
 
 API documentation is available at `http://localhost:8000/docs` while the server is running.
+
+The separate backend implementation plans are indexed in [plans/README.md](plans/README.md).

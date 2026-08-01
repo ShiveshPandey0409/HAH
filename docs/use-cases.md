@@ -160,3 +160,6 @@ discovery, atomic claim, required proof, successful verification, authorized Pra
 payout, paid claim, MCP request record, and webhook delivery record.
 
 The executable check for this sequence is `database/smoke_test.sql`.
+
+The implementation order and separate setup plans are indexed in
+[`plans/README.md`](../plans/README.md).

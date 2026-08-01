@@ -1,4 +1,4 @@
-# FastAPI plan: user creation only
+# Plan 01: user creation
 
 ## Scope
 
