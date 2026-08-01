@@ -35,18 +35,18 @@ PostgreSQL database, and the full test suite passes.
 
 ## Milestone 2 — social enrichment, eligible feed, and claims (Plans 02 and 04)
 
-- [ ] Map baseline `social_accounts` and `bounty_claims`; add new migrations only
+- [x] Map baseline `social_accounts` and `bounty_claims`; add new migrations only
   for post-baseline changes to eligibility and atomic-claim guarantees.
-- [ ] Implement the public-profile URL validator and a vendor-neutral enrichment
+- [x] Implement the public-profile URL validator and a vendor-neutral enrichment
   adapter; store no OAuth or social credentials.
-- [ ] Add `PUT /v1/users/{user_id}/social-profiles/{platform}` and
+- [x] Add `PUT /v1/users/{user_id}/social-profiles/{platform}` and
   `GET /v1/users/{user_id}/social-profiles`.
-- [ ] Add `GET /v1/freelancers/{freelancer_id}/bounties` and
+- [x] Add `GET /v1/freelancers/{freelancer_id}/bounties` and
   `POST /v1/bounties/{bounty_id}/claims`.
-- [ ] Test URL normalization, provider failures, metric mapping, profile
+- [x] Test URL normalization, provider failures, metric mapping, profile
   uniqueness, eligibility boundaries, expired/closed exclusions, and concurrent
   final-slot claims.
-- [ ] Run migrations from an empty database, run the complete test suite, smoke
+- [x] Run migrations from an empty database, run the complete test suite, smoke
   test the user-to-profile-to-feed-to-claim flow, then open PR 2.
 
 ## Milestone 3 — submissions, verification, MCP, and webhooks (Plans 05, 07, 08)
