@@ -21,7 +21,7 @@ interface NavItem { to: string; label: string; icon: Icon }
 export function Logo() {
   return (
     <div className="logo" aria-label="Hire a Human">
-      <span className="logo__mark">H</span>
+      <img className="logo__mark" src="/logo.png" alt="" width={32} height={32} />
       <Text as="span" bold>Hire a Human</Text>
     </div>
   )

@@ -1,5 +1,5 @@
 import { ClipboardText, Link, LinkButton } from '@cloudflare/kumo'
-import { CheckCircle, CurrencyDollar, Sparkle, UsersThree } from '@phosphor-icons/react'
+import { CheckCircle, CurrencyDollar, Sparkle } from '@phosphor-icons/react'
 import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
@@ -14,7 +14,7 @@ export function LandingPage() {
 
       <header className="landing-nav">
         <Link href="/" variant="plain" className="landing-brand" aria-label="Hire a Human home">
-          <UsersThree className="landing-brand__mark" size={38} weight="fill" aria-hidden="true" />
+          <img className="landing-brand__mark" src="/logo.png" alt="" width={38} height={38} />
           <span>Hire a Human</span>
         </Link>
 
@@ -76,7 +76,7 @@ export function LandingPage() {
 
         <article className="agent-card agent-card--request">
           <p className="agent-card__role">Agent</p>
-          <p className="agent-card__message">Comment on 10<br />Reddit posts and<br />mention Cursor</p>
+          <p className="agent-card__message">Comment on 10<br />Reddit posts and<br />mention <em>Cursor</em></p>
           <Sparkle className="agent-card__sparkle" size={21} aria-hidden="true" />
         </article>
 
@@ -96,7 +96,7 @@ export function LandingPage() {
 
         <article className="agent-card agent-card--response">
           <p className="agent-card__role">Agent</p>
-          <p>That’s why I<br />hire humans.</p>
+          <p>That’s why I<br />hire <em>humans</em>.</p>
           <Sparkle className="agent-card__sparkle" size={21} aria-hidden="true" />
         </article>
       </section>
