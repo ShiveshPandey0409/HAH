@@ -106,10 +106,12 @@ class Settings(BaseSettings):
             if DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY in configured_keys:
                 raise ValueError("the development webhook encryption key is not deployment-safe")
         self._validate_mcp_oauth_settings()
-        if self.app_env in {"staging", "production"} and self.password_reset_url.scheme != "https":
+        if (
+            self.app_env in {"staging", "production"}
+            and self.smtp_configured
+            and self.password_reset_url.scheme != "https"
+        ):
             raise ValueError("deployed password reset URLs must use HTTPS")
-        if self.app_env in {"staging", "production"} and not self.smtp_configured:
-            raise ValueError(f"{self.app_env} requires SMTP password reset delivery")
         return self
 
     def _validate_mcp_oauth_settings(self) -> None:
@@ -153,9 +155,7 @@ class Settings(BaseSettings):
         if self.mcp_oauth_max_token_lifetime_seconds <= 0:
             raise ValueError("MCP OAuth maximum token lifetime must be positive")
 
-        if self.app_env in {"staging", "production"}:
-            if not all(configured):
-                raise ValueError(f"{self.app_env} requires OAuth token introspection credentials")
+        if self.app_env in {"staging", "production"} and all(configured):
             deployment_urls = (
                 self.mcp_public_url,
                 self.mcp_oauth_issuer_url,

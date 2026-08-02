@@ -55,11 +55,14 @@ render blueprints validate render.yaml
 ```
 
 Connect the private `ShiveshPandey0409/HAH` repository to the Render workspace,
-then supply the OAuth issuer/introspection values, SMTP/reset-link settings, and
-`WEBHOOK_SECRET_ENCRYPTION_KEYS` as a JSON list of Fernet keys. Production startup
-fails closed when OAuth, SMTP, the HTTPS password-reset URL, or webhook encryption
-is missing. `WEBHOOK_WORKER_ENABLED=true` runs delivery in the single web instance
-without a separately billed worker.
+then supply `WEBHOOK_SECRET_ENCRYPTION_KEYS` as a JSON list of Fernet keys.
+Production startup requires this deployment-safe encryption key. External MCP OAuth
+and SMTP password-reset delivery are optional integrations: when OAuth introspection
+is absent, the MCP endpoint rejects every token; when SMTP is absent,
+`POST /v1/auth/forgot-password` returns `503` without issuing a reset token. If these
+integrations are configured, their credentials must be complete and deployed URLs
+must use HTTPS. `WEBHOOK_WORKER_ENABLED=true` runs delivery in the single web
+instance without a separately billed worker.
 
 ## Test
 
