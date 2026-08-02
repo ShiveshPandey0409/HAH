@@ -350,7 +350,13 @@ class HTTPPravaGateway:
         return mandates
 
     async def revoke_session(self, *, session_id: str) -> None:
-        body = await self._request("POST", f"/v1/sessions/{session_id}/revoke")
+        # Prava's Fastify sandbox rejects a bodyless JSON POST with
+        # FST_ERR_CTP_EMPTY_JSON_BODY, so send the explicit empty object.
+        body = await self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/revoke",
+            json={},
+        )
         if body.get("success") is not True:
             raise PravaGatewayError("PRAVA_INVALID_RESPONSE", retryable=False)
 

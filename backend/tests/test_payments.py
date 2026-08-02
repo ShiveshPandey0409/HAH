@@ -151,16 +151,15 @@ async def test_http_prava_session_rejects_explicit_non_authorize_flow(monkeypatc
 
 async def test_http_prava_revoke_session_requires_success(monkeypatch) -> None:
     gateway = _http_prava_gateway()
-    requests: list[tuple[str, str]] = []
+    requests: list[tuple[str, str, dict]] = []
 
     async def successful_revoke(method, path, **kwargs):
-        del kwargs
-        requests.append((method, path))
+        requests.append((method, path, kwargs))
         return {"success": True}
 
     monkeypatch.setattr(gateway, "_request", successful_revoke)
     await gateway.revoke_session(session_id="ses_live_contract")
-    assert requests == [("POST", "/v1/sessions/ses_live_contract/revoke")]
+    assert requests == [("POST", "/v1/sessions/ses_live_contract/revoke", {"json": {}})]
 
     async def malformed_revoke(*args, **kwargs):
         del args, kwargs
