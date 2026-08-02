@@ -15,7 +15,7 @@ export function LandingPage() {
 
       <header className="landing-nav">
         <Link href="/" variant="plain" className="landing-brand" aria-label="Hire a Human home">
-          <Logo size={38} />
+          {/* <Logo size={38} /> */}
         </Link>
 
         <LinkButton href="/login" variant="primary" className="landing-nav__sign-in">
