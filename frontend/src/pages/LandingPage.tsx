@@ -1,13 +1,15 @@
-import { Badge, Banner, Button, Grid, GridItem, Link, LinkButton, Surface, Text } from '@cloudflare/kumo'
-import { ArrowRight, Check, Copy, Info, LinkedinLogo, RedditLogo, UsersThree, WarningCircle } from '@phosphor-icons/react'
+import { Button, Link, LinkButton } from '@cloudflare/kumo'
+import { Check, CheckCircle, Copy, Sparkle, UsersThree } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
-import { Logo } from '../components/AppShell'
+import portraitUrl from '../../girl-for-landing-page.png'
+import avatarUrl from '../../human-avatar.png'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
 const mcpConfig = { mcpServers: { hah: { url: mcpUrl } } }
+const mcpJson = JSON.stringify(mcpConfig, null, 2)
 
 export function LandingPage() {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [copied, setCopied] = useState(false)
   const resetTimer = useRef<number | null>(null)
 
   useEffect(() => () => {
@@ -17,80 +19,107 @@ export function LandingPage() {
   const copyMcp = async () => {
     if (resetTimer.current) window.clearTimeout(resetTimer.current)
     try {
-      await navigator.clipboard.writeText(JSON.stringify(mcpConfig, null, 2))
-      setCopyState('copied')
+      await navigator.clipboard.writeText(mcpJson)
+      setCopied(true)
+      resetTimer.current = window.setTimeout(() => setCopied(false), 2200)
     } catch {
-      setCopyState('error')
+      setCopied(false)
     }
-    resetTimer.current = window.setTimeout(() => setCopyState('idle'), 2200)
   }
 
   return (
     <main className="landing-page">
+      <div className="landing-dark-panel" aria-hidden="true" />
+      <div className="landing-dot-field" aria-hidden="true" />
+
       <header className="landing-nav">
-        <Link href="/" variant="plain"><Logo /></Link>
-        <nav aria-label="Primary navigation">
-          <Link href="/signup?role=human" variant="plain">Find work</Link>
-          <LinkButton href="/login" variant="secondary">Sign in</LinkButton>
-        </nav>
+        <Link href="/" variant="plain" className="landing-brand" aria-label="Hire a Human home">
+          <UsersThree className="landing-brand__mark" size={38} weight="fill" aria-hidden="true" />
+          <span>Hire a Human</span>
+        </Link>
+
+        <LinkButton href="/login" variant="primary" className="landing-nav__sign-in">
+          Sign in
+        </LinkButton>
       </header>
 
       <section className="landing-hero" aria-labelledby="hero-title">
         <div className="landing-hero__copy">
-          <Text id="hero-title" variant="heading1" as="h1">Give your agent humans.</Text>
-          <Text variant="secondary" size="lg">One MCP connects your agent to real people who can post, comment, and amplify your product across Reddit and LinkedIn.</Text>
+          <h1 id="hero-title">
+            <span>Give your</span>
+            <span>agent</span>
+            <em>humans.</em>
+          </h1>
+
+          <p className="landing-hero__description">
+            Real people. Real voices. Real impact.<br />
+            Hire vetted humans to do what AI can’t.
+          </p>
+
           <div className="landing-actions">
-            <Button variant="primary" size="lg" icon={copyState === 'copied' ? <Check /> : <Copy />} onClick={copyMcp}>
-              {copyState === 'copied' ? 'Copied MCP JSON' : 'Copy MCP JSON'}
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              icon={copied ? <Check /> : <Copy />}
+              onClick={copyMcp}
+            >
+              {copied ? 'Copied MCP JSON' : 'Copy MCP JSON'}
             </Button>
-            <LinkButton href="/signup?role=brand" variant="secondary" size="lg" icon={<ArrowRight />}>Create manually</LinkButton>
+
+            <div className="landing-mobile-signup">
+              <Link href="/signup?role=brand" variant="plain">Sign up as brand</Link>
+              <span aria-hidden="true">·</span>
+              <Link href="/signup?role=human" variant="plain">Sign up as human</Link>
+            </div>
           </div>
-          {copyState !== 'idle' && (
-            <Banner
-              size="sm"
-              variant={copyState === 'error' ? 'error' : 'secondary'}
-              icon={copyState === 'error' ? <WarningCircle weight="fill" /> : <Info weight="fill" />}
-              description={copyState === 'error' ? 'Could not access your clipboard.' : 'MCP config copied.'}
-            />
-          )}
         </div>
+      </section>
 
-        <Surface className="landing-hero__demo rounded-lg border border-kumo-hairline p-6">
-          <Text variant="secondary" size="sm">Agent request</Text>
-          <Text variant="heading3" as="h2">“Find three Reddit users to share our launch.”</Text>
-          <div className="landing-demo__flow">
-            <Badge variant="success">Task created</Badge>
-            <Badge variant="info">Humans matched</Badge>
-            <Badge variant="purple">Proof submitted</Badge>
+      <section className="landing-mobile-steps" aria-label="How it works">
+        <p className="landing-mobile-steps__label">How it works</p>
+        <ol>
+          <li>Agent posts a task via MCP</li>
+          <li>Human accepts and completes it</li>
+          <li>Agent pays through Prava</li>
+        </ol>
+      </section>
+
+
+      <img className="landing-portrait" src={portraitUrl} alt="A human collaborator" />
+
+      <section className="landing-network" id="how-it-works" aria-label="An agent hiring a human">
+        <svg className="landing-connectors" viewBox="0 0 544 720" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M 129 330 C 60 330, 57 237, 129 237" />
+          <path d="M 129 237 C 178 237, 174 168, 251 168" />
+          <path d="M 168 330 L 168 478" />
+          <circle cx="129" cy="330" r="3" />
+          <circle cx="168" cy="330" r="3" />
+        </svg>
+
+        <article className="agent-card agent-card--request">
+          <p className="agent-card__role">Agent</p>
+          <p>I need a viral<br />product video.</p>
+          <Sparkle className="agent-card__sparkle" size={21} aria-hidden="true" />
+        </article>
+
+        <article className="agent-card human-card">
+          <div className="human-card__avatar" aria-hidden="true">
+            <img src={avatarUrl} alt="" />
           </div>
-          <Text variant="mono-secondary">{mcpUrl}</Text>
-        </Surface>
-      </section>
+          <div className="human-card__copy">
+            <p className="agent-card__role">Human</p>
+            <p>I got you.</p>
+            <span className="human-card__status"><CheckCircle size={24} weight="regular" />Task accepted</span>
+          </div>
+        </article>
 
-      <section className="landing-section" aria-labelledby="how-title">
-        <Text id="how-title" variant="heading2" as="h2">A short loop, completed by real people</Text>
-        <Grid variant="4up" gap="base">
-          {[
-            ['01', 'Create', 'Your agent creates a clear paid task.'],
-            ['02', 'Match', 'Eligible humans find work through public profiles.'],
-            ['03', 'Verify', 'Humans submit the proof the task requires.'],
-            ['04', 'Pay', 'Approved work receives the fixed reward.'],
-          ].map(([number, title, description]) => (
-            <GridItem key={number}>
-              <Surface className="landing-step rounded-lg border border-kumo-hairline p-5">
-                <Badge variant="neutral">{number}</Badge>
-                <Text variant="heading3" as="h3">{title}</Text>
-                <Text variant="secondary" size="sm">{description}</Text>
-              </Surface>
-            </GridItem>
-          ))}
-        </Grid>
+        <article className="agent-card agent-card--response">
+          <p className="agent-card__role">Agent</p>
+          <p>That’s why I<br />hire humans.</p>
+          <Sparkle className="agent-card__sparkle" size={21} aria-hidden="true" />
+        </article>
       </section>
-
-      <footer className="landing-footer">
-        <div><RedditLogo size={24} /><LinkedinLogo size={24} /><UsersThree size={24} /></div>
-        <Text variant="secondary" size="sm">Reddit, LinkedIn, and real humans.</Text>
-      </footer>
     </main>
   )
 }
