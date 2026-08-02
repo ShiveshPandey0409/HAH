@@ -1,17 +1,19 @@
 import { Button, Empty, Field, Input, Link, LinkButton, Loader, Surface } from '@cloudflare/kumo'
 import { ArrowRight, ArrowSquareOut, CheckCircle, ClipboardText, Clock, FileText, PaperPlaneTilt, UploadSimple } from '@phosphor-icons/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { Modal, Notice, PageHeader, StatusBadge } from '../components/UI'
 import { api } from '../lib/api'
 import { date, money, titleCase } from '../lib/utils'
-import type { SubmissionProofInput, WorkClaim } from '../types'
+import type { Payment, SubmissionProofInput, Wallet, WorkClaim } from '../types'
 
 type ImageProofType = 'screenshot' | 'image'
 
 export function WorkPage() {
   const { user } = useAuth()
   const [claims, setClaims] = useState<WorkClaim[]>([])
+  const [wallet, setWallet] = useState<Wallet | null>(null)
+  const [payments, setPayments] = useState<Record<string, Payment>>({})
   const [selected, setSelected] = useState<WorkClaim | null>(null)
   const [urlProof, setUrlProof] = useState('')
   const [files, setFiles] = useState<Record<ImageProofType, File | null>>({ screenshot: null, image: null })
@@ -20,20 +22,26 @@ export function WorkPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const load = () => {
+  const load = useCallback(() => {
     if (!user) return
     setLoading(true)
     setError('')
-    api.listClaims(user.id)
-      .then((items) => {
+    Promise.all([api.listClaims(user.id), api.getWallet()])
+      .then(async ([items, nextWallet]) => {
         setClaims(items)
+        setWallet(nextWallet)
+        const paymentPairs = await Promise.all(items.filter((item) => item.submission).map(async (item) => {
+          try { return [item.submission!.id, await api.getSubmissionPayment(item.submission!.id)] as const }
+          catch { return null }
+        }))
+        setPayments(Object.fromEntries(paymentPairs.filter((item): item is readonly [string, Payment] => item !== null)))
         setSelected((current) => current ? items.find((item) => item.id === current.id) ?? null : null)
       })
       .catch((nextError) => setError(nextError instanceof Error ? nextError.message : 'Could not load work'))
       .finally(() => setLoading(false))
-  }
+  }, [user])
 
-  useEffect(load, [user])
+  useEffect(() => { load() }, [load])
   if (!user) return null
 
   const openProof = (claim: WorkClaim) => {
@@ -88,13 +96,14 @@ export function WorkPage() {
     <div className="page">
       <PageHeader title="My work" description="Your claimed work and latest review status, synced from the API." action={<Button variant="secondary" onClick={load}>Refresh</Button>} />
       {error && !selected && <Notice tone="error">{error}</Notice>}
+      {wallet && <Surface as="section" className="wallet-panel rounded-lg border border-kumo-hairline p-5"><div><h2>Sandbox wallet</h2><p>Prava-funded hackathon credits. These balances are not redeemable.</p></div><div>{wallet.balances.length ? wallet.balances.map((balance) => <strong key={balance.currency}>{money(balance.balance_minor, balance.currency)}</strong>) : <strong>{money(0)}</strong>}</div></Surface>}
       {loading ? <div className="loading-state"><Loader size="lg" /></div> : claims.length ? (
         <div className="work-list">
           {claims.map((claim) => (
             <Surface as="article" className="work-row rounded-lg border border-kumo-hairline p-5" key={claim.id}>
               <span className={`platform-icon platform-icon--${claim.platform}`}>{claim.platform === 'reddit' ? 'r/' : 'in'}</span>
               <div className="work-row__body"><div><StatusBadge tone={claim.submission ? (claim.submission.verification_status === 'passed' ? 'positive' : claim.submission.verification_status === 'failed' ? 'danger' : 'warning') : 'accent'}>{claim.submission ? titleCase(claim.submission.verification_status) : titleCase(claim.status)}</StatusBadge><small>Claimed {date(claim.claimed_at, '')}</small></div><h2>{claim.bounty_title}</h2><p>{claim.task_title}</p></div>
-              <div className="work-row__reward"><strong>{money(claim.reward_minor, claim.currency)}</strong><span>fixed reward</span></div>
+              <div className="work-row__reward"><strong>{money(claim.reward_minor, claim.currency)}</strong><span>{claim.submission && payments[claim.submission.id] ? `Payment ${titleCase(payments[claim.submission.id].status)}` : 'fixed reward'}</span></div>
               {claim.submission ? <Button variant="secondary" icon={<FileText />} onClick={() => setSelected(claim)}>View proof</Button> : <Button variant="primary" icon={<UploadSimple />} onClick={() => openProof(claim)}>Submit proof</Button>}
             </Surface>
           ))}

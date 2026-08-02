@@ -1,11 +1,11 @@
 import { Button, Checkbox, Empty, Field, Input, InputArea, Link, LinkButton, Loader, Meter, Select, Surface, Tabs } from '@cloudflare/kumo'
-import { ArrowLeft, ArrowRight, Calendar, Copy, FilePlus, Pencil, Plus, Rocket, Trash, Users } from '@phosphor-icons/react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ArrowLeft, ArrowRight, ArrowSquareOut, ArrowsClockwise, Calendar, Copy, CreditCard, FilePlus, Pencil, Plus, Rocket, Trash, Users } from '@phosphor-icons/react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Notice, PageHeader, StatusBadge } from '../components/UI'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { date, money, titleCase, toIso, toLocalInput } from '../lib/utils'
-import type { Bounty, BountyInput, Platform, ProofType, Task, TaskInput } from '../types'
+import type { Bounty, BountyInput, Payment, PaymentAuthorization, Platform, ProofType, Task, TaskInput } from '../types'
 
 const emptyBounty = (): BountyDraft => ({
   platform: 'reddit',
@@ -93,11 +93,31 @@ export function TaskDetailPage() {
   const { taskId = '' } = useParams()
   const navigate = useNavigate()
   const [task, setTask] = useState<Task | null>(null)
+  const [authorization, setAuthorization] = useState<PaymentAuthorization | null>(null)
+  const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => { api.getTask(taskId).then(setTask).catch((e) => setError(e.message)).finally(() => setLoading(false)) }, [taskId])
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [nextTask, nextPayments] = await Promise.all([api.getTask(taskId), api.listTaskPayments(taskId)])
+      setTask(nextTask)
+      setPayments(nextPayments)
+      try { setAuthorization(await api.getPaymentAuthorization(taskId)) }
+      catch (nextError) {
+        if (!(nextError instanceof ApiError && nextError.status === 404)) throw nextError
+        setAuthorization(null)
+      }
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not load task')
+    } finally {
+      setLoading(false)
+    }
+  }, [taskId])
+  useEffect(() => { void load() }, [load])
   const open = async () => {
     if (!task) return
     setBusy('open'); setError('')
@@ -107,6 +127,23 @@ export function TaskDetailPage() {
     if (!task || !confirm(`Delete “${task.title}”? This cannot be undone.`)) return
     setBusy('delete'); setError('')
     try { await api.deleteTask(task.id); navigate('/app/tasks') } catch (e) { setError(e instanceof Error ? e.message : 'Could not delete task'); setBusy('') }
+  }
+  const authorize = async (action: 'start' | 'refresh' | 'restart') => {
+    if (!task) return
+    setBusy(action)
+    setError('')
+    try {
+      const next = action === 'start'
+        ? await api.startPaymentAuthorization(task.id)
+        : action === 'restart'
+          ? await api.restartPaymentAuthorization(task.id)
+          : await api.refreshPaymentAuthorization(task.id)
+      setAuthorization(next)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not update Prava authorization')
+    } finally {
+      setBusy('')
+    }
   }
 
   if (loading) return <div className="page loading-state"><Loader size="lg" /></div>
@@ -128,6 +165,19 @@ export function TaskDetailPage() {
         <div><span>Unallocated</span><strong>{money(task.remaining_budget_minor, task.currency)}</strong></div>
         <div><span>Campaign deadline</span><strong>{date(task.deadline_at)}</strong></div>
       </div>
+      <Surface as="section" className="payment-panel rounded-lg border border-kumo-hairline p-5">
+        <div className="detail-section__heading"><div><h2>Prava sandbox funding</h2><p>Authorize this task budget before approving completed work.</p></div>{authorization && <StatusBadge tone={authorization.status === 'active' ? 'positive' : authorization.status === 'pending' ? 'warning' : 'danger'}>{titleCase(authorization.status)}</StatusBadge>}</div>
+        {!authorization ? <div className="payment-panel__action"><Notice>The approval reserves up to {money(task.total_budget_minor, task.currency)} for this task.</Notice><Button variant="primary" icon={<CreditCard />} loading={busy === 'start'} onClick={() => authorize('start')}>Authorize funding</Button></div> : <>
+          <div className="payment-facts"><span><small>Approved cap</small><strong>{money(authorization.total_cap_minor, authorization.currency)}</strong></span><span><small>Remaining</small><strong>{money(authorization.remaining_minor, authorization.currency)}</strong></span><span><small>Funding</small><strong>{titleCase(authorization.funding_status)}</strong></span></div>
+          {authorization.funding_failure_message && <Notice tone="error">{authorization.funding_failure_message}</Notice>}
+          <div className="payment-panel__actions">
+            {authorization.approval_url && <Link href={authorization.approval_url} target="_blank" rel="noreferrer">Open Prava approval <ArrowSquareOut size={14} /></Link>}
+            <Button variant="secondary" icon={<ArrowsClockwise />} loading={busy === 'refresh'} onClick={() => authorize('refresh')}>Refresh status</Button>
+            {authorization.status !== 'active' && !authorization.approval_url && <Button variant="secondary" loading={busy === 'restart'} onClick={() => authorize('restart')}>Restart approval</Button>}
+          </div>
+        </>}
+        {payments.length > 0 && <div className="payment-list"><h3>Payments</h3>{payments.map((payment) => <div key={payment.id}><span>{money(payment.amount_minor, payment.currency)}</span><StatusBadge tone={payment.status === 'succeeded' ? 'positive' : payment.status === 'failed' ? 'danger' : 'warning'}>{titleCase(payment.status)}</StatusBadge><small>{payment.attempt_count} attempt{payment.attempt_count === 1 ? '' : 's'}</small></div>)}</div>}
+      </Surface>
       <section className="detail-section">
         <div className="detail-section__heading"><div><h2>Bounties</h2><p>Each one is a separate piece of paid work.</p></div><span>{task.bounties.length} total</span></div>
         <div className="bounty-list">{task.bounties.map((bounty) => <BountyDetail key={bounty.id} bounty={bounty} currency={task.currency} />)}</div>

@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Notice, PageHeader, StatusBadge } from '../components/UI'
 import { api } from '../lib/api'
 import { date, titleCase } from '../lib/utils'
-import type { Submission, Task } from '../types'
+import type { Payment, Submission, Task } from '../types'
 
 interface ReviewItem {
   submission: Submission
@@ -21,6 +21,7 @@ export function ReviewPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [proofImages, setProofImages] = useState<Record<string, string>>({})
+  const [payment, setPayment] = useState<Payment | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -50,6 +51,7 @@ export function ReviewPage() {
     event.preventDefault()
     setSaving(true)
     setError('')
+    setPayment(null)
     try {
       const submission = await api.getSubmission(submissionId.trim())
       setSelected({ submission, taskTitle: 'Direct lookup' })
@@ -74,6 +76,7 @@ export function ReviewPage() {
       const updated = { ...selected, submission }
       setSelected(updated)
       setItems((current) => current.map((item) => item.submission.id === submission.id ? updated : item))
+      if (result === 'passed') setPayment(await api.getSubmissionPayment(submission.id))
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Could not verify submission')
     } finally {
@@ -104,7 +107,7 @@ export function ReviewPage() {
         <Surface as="section" className="panel review-inbox rounded-lg border border-kumo-hairline p-6">
           <div className="review-form-panel__heading"><span><ClipboardText size={22} /></span><div><h2>Submission inbox</h2><p>Open a submission to inspect proof and record a decision.</p></div></div>
           {loading ? <div className="loading-state"><Loader /></div> : items.length ? <div className="review-inbox__list">
-            {items.map((item) => <button type="button" className={`review-inbox__item${selected?.submission.id === item.submission.id ? ' is-selected' : ''}`} key={item.submission.id} onClick={() => { setSelected(item); setError('') }}>
+            {items.map((item) => <button type="button" className={`review-inbox__item${selected?.submission.id === item.submission.id ? ' is-selected' : ''}`} key={item.submission.id} onClick={() => { setSelected(item); setError(''); setPayment(null) }}>
               <span><strong>{item.taskTitle}</strong><small>{date(item.submission.submitted_at, '')}</small></span>
               <StatusBadge tone={item.submission.verification_status === 'passed' ? 'positive' : item.submission.verification_status === 'failed' ? 'danger' : 'warning'}>{titleCase(item.submission.verification_status)}</StatusBadge>
             </button>)}
@@ -115,6 +118,7 @@ export function ReviewPage() {
             <div className="review-form-panel__heading"><span><SealQuestion size={22} /></span><div><h2>{selected.taskTitle}</h2><p>Revision {selected.submission.revision} · {selected.submission.id}</p></div></div>
             <div className="proof-list">{selected.submission.proofs.map((proof) => <div key={proof.id}><span>{titleCase(proof.proof_type)}</span>{proof.url ? <Link href={proof.url} target="_blank" rel="noreferrer">Open proof <ArrowSquareOut size={14} /></Link> : proof.content_url ? <><Button size="sm" variant="secondary" onClick={() => loadImage(proof.id, proof.content_url!)}>Load image</Button>{proofImages[proof.id] && <img className="proof-preview" src={proofImages[proof.id]} alt={`${titleCase(proof.proof_type)} proof`} />}</> : <code>{proof.storage_key}</code>}</div>)}</div>
             {selected.submission.failure_reason && <Notice tone="error">{selected.submission.failure_reason}</Notice>}
+            {payment && <Notice tone={payment.status === 'failed' ? 'error' : 'success'}>Payment {titleCase(payment.status)} · {payment.amount_minor / 100} {payment.currency}</Notice>}
             {selected.submission.verification_status === 'passed' || selected.submission.verification_status === 'failed' ? <Notice tone="success">This submission has a final decision.</Notice> : <form onSubmit={verify} className="review-decision-form">
               <Tabs value={result} onValueChange={(value) => setResult(value as typeof result)} tabs={[{ value: 'passed', label: 'Approve' }, { value: 'review_required', label: 'Needs review' }, { value: 'failed', label: 'Reject' }]} />
               {result === 'failed' && <Field label="Reason"><InputArea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Tell the human what did not meet the brief." required rows={3} /></Field>}

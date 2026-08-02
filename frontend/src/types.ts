@@ -168,6 +168,54 @@ export interface WorkClaim extends Claim {
   submission: Submission | null
 }
 
+export type PaymentStatus = 'created' | 'processing' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface PaymentAuthorization {
+  id: string
+  task_id: string
+  provider: string
+  status: 'pending' | 'active' | 'paused' | 'expired' | 'cancelled'
+  total_cap_minor: number
+  used_minor: number
+  remaining_minor: number
+  currency: string
+  funding_status: PaymentStatus
+  approval_url: string | null
+  approval_expires_at: string | null
+  valid_until: string | null
+  funding_failure_message: string | null
+  reused_global_approval: boolean
+}
+
+export interface Payment {
+  id: string
+  task_id: string
+  bounty_id: string
+  claim_id: string
+  submission_id: string
+  payer_user_id: string
+  payee_user_id: string
+  provider: string
+  amount_minor: number
+  currency: string
+  status: PaymentStatus
+  provider_transaction_ref: string | null
+  failure_code: string | null
+  failure_message: string | null
+  next_attempt_at: string | null
+  attempt_count: number
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
+export interface Wallet {
+  user_id: string
+  redeemable: boolean
+  balances: { currency: string; balance_minor: number }[]
+  entries: { id: string; payment_id: string; amount_minor: number; currency: string; entry_type: string; created_at: string }[]
+}
+
 export interface WebhookEndpoint {
   id: string
   creator_id: string

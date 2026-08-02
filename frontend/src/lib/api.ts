@@ -2,6 +2,8 @@ import type {
   AuthResponse,
   Claim,
   EligibleBounty,
+  Payment,
+  PaymentAuthorization,
   ProofUpload,
   SocialProfile,
   Submission,
@@ -11,6 +13,7 @@ import type {
   User,
   WebhookEndpoint,
   WebhookEvent,
+  Wallet,
   WorkClaim,
 } from '../types'
 
@@ -116,6 +119,11 @@ export const api = {
     request<Task>(`/v1/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   openTask: (id: string) => request<Task>(`/v1/tasks/${id}/open`, { method: 'POST' }),
   deleteTask: (id: string) => request<void>(`/v1/tasks/${id}`, { method: 'DELETE' }),
+  startPaymentAuthorization: (taskId: string) => request<PaymentAuthorization>(`/v1/tasks/${taskId}/payment-authorization`, { method: 'POST' }),
+  refreshPaymentAuthorization: (taskId: string) => request<PaymentAuthorization>(`/v1/tasks/${taskId}/payment-authorization/refresh`, { method: 'POST' }),
+  restartPaymentAuthorization: (taskId: string) => request<PaymentAuthorization>(`/v1/tasks/${taskId}/payment-authorization/restart`, { method: 'POST' }),
+  getPaymentAuthorization: (taskId: string) => request<PaymentAuthorization>(`/v1/tasks/${taskId}/payment-authorization`),
+  listTaskPayments: (taskId: string) => request<Payment[]>(`/v1/tasks/${taskId}/payments`),
   listProfiles: (userId: string) => request<SocialProfile[]>(`/v1/users/${userId}/social-profiles`),
   putProfile: (userId: string, platform: string, profileUrl: string) =>
     request<SocialProfile>(`/v1/users/${userId}/social-profiles/${platform}`, {
@@ -143,6 +151,10 @@ export const api = {
   getSubmission: (submissionId: string) => request<Submission>(`/v1/submissions/${submissionId}`),
   listTaskSubmissions: (taskId: string) => request<Submission[]>(`/v1/tasks/${taskId}/submissions`),
   getProofContent: (contentUrl: string) => requestBlob(contentUrl),
+  getSubmissionPayment: (submissionId: string) => request<Payment>(`/v1/submissions/${submissionId}/payment`),
+  getPayment: (paymentId: string) => request<Payment>(`/v1/payments/${paymentId}`),
+  retryPayment: (paymentId: string) => request<Payment>(`/v1/payments/${paymentId}/retry`, { method: 'POST' }),
+  getWallet: () => request<Wallet>('/v1/wallet'),
   verifySubmission: (
     submissionId: string,
     result: 'passed' | 'failed' | 'review_required',

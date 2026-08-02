@@ -129,9 +129,9 @@ class FirstPartyOAuthProvider(
             if self._cipher is None or registered.client_secret_hash is None:
                 return None
             try:
-                client_secret = self._cipher.decrypt(
-                    registered.client_secret_ciphertext
-                ).decode("utf-8")
+                client_secret = self._cipher.decrypt(registered.client_secret_ciphertext).decode(
+                    "utf-8"
+                )
             except (InvalidToken, UnicodeError):
                 return None
             if not hmac.compare_digest(
@@ -551,9 +551,7 @@ class FirstPartyOAuthProvider(
                     scopes=locked.scopes,
                     code_challenge=locked.code_challenge,
                     redirect_uri=locked.redirect_uri,
-                    redirect_uri_provided_explicitly=(
-                        locked.redirect_uri_provided_explicitly
-                    ),
+                    redirect_uri_provided_explicitly=(locked.redirect_uri_provided_explicitly),
                     resource=locked.resource,
                     expires_at=now + AUTHORIZATION_CODE_TTL,
                 )
@@ -749,10 +747,12 @@ class FirstPartyOAuthProvider(
                 supplied_id, supplied_secret = map(unquote, decoded.split(":", 1))
             except (binascii.Error, UnicodeError, ValueError):
                 pass
-        return bool(expected_id and expected_secret) and hmac.compare_digest(
-            supplied_id.encode("utf-8"), expected_id.encode("utf-8")
-        ) and hmac.compare_digest(
-            supplied_secret.encode("utf-8"), expected_secret.encode("utf-8")
+        return (
+            bool(expected_id and expected_secret)
+            and hmac.compare_digest(supplied_id.encode("utf-8"), expected_id.encode("utf-8"))
+            and hmac.compare_digest(
+                supplied_secret.encode("utf-8"), expected_secret.encode("utf-8")
+            )
         )
 
     def _render_consent(
