@@ -1,3 +1,0 @@
-[mcp_servers.react-bits]
-command = "npx"
-args = [ "-y", "reactbits-mcp-server@1.2.7" ]
