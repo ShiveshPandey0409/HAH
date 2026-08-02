@@ -6,7 +6,7 @@ import { Logo } from '../components/AppShell'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
 const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
-const installCommand = `npx add-mcp ${mcpUrl}`
+const installCommand = `npx add-mcp ${mcpUrl} -g -n hah`
 const testPrompt = 'Use HAH to show my wallet balance. Do not make any changes.'
 
 type CopyTarget = 'install' | 'url' | 'prompt' | null
@@ -61,14 +61,14 @@ export function McpSetupPage() {
         <div className="mcp-simple-heading">
           <Badge variant="purple"><PlugsConnected /> MCP</Badge>
           <Text variant="heading1" as="h1">Connect HAH to your AI app.</Text>
-          <Text variant="secondary" size="lg">One command. Login opens automatically.</Text>
+          <Text variant="secondary" size="lg">Run it once on each computer. Use the same HAH account everywhere.</Text>
         </div>
 
         <Surface className="mcp-install-card rounded-lg border border-kumo-hairline p-6">
           <span>Run once</span>
           <code>{installCommand}</code>
           <Button variant="primary" icon={copied === 'install' ? <Check /> : <Copy />} onClick={() => copy('install', installCommand)}>{copied === 'install' ? 'Copied' : 'Copy'}</Button>
-          <small>Works with Claude, Cursor, Codex, VS Code, Windsurf, and more.</small>
+          <small>Installs globally as “hah” for Claude, Cursor, Codex, VS Code, Windsurf, and more.</small>
         </Surface>
       </section>
 
@@ -76,12 +76,12 @@ export function McpSetupPage() {
         <Surface as="section" className="mcp-next-card rounded-lg border border-kumo-hairline p-6">
           <h2>Then</h2>
           <ol className="mcp-next-list">
-            <li><span>1</span><div><strong>Choose your app</strong><small>The installer detects supported MCP clients.</small></div></li>
-            <li><span>2</span><div><strong>Open it again</strong><small>HAH connects when the app starts MCP.</small></div></li>
-            <li><span>3</span><div><strong>Sign in to HAH</strong><small>Your browser opens the secure login and consent page.</small></div></li>
+            <li><span>1</span><div><strong>Choose your app</strong><small>The installer detects supported MCP clients and adds HAH globally.</small></div></li>
+            <li><span>2</span><div><strong>Restart your app</strong><small>Open its MCP list and choose Authenticate for “hah” if prompted.</small></div></li>
+            <li><span>3</span><div><strong>Sign in on the same computer</strong><small>Use your existing HAH email. Keep the AI app open until the browser returns to its local callback.</small></div></li>
             <li><span>4</span><div><strong>Approve once when needed</strong><small>The first paid task may ask you to approve an allowance. Later task rewards are automatic until it runs out.</small></div></li>
           </ol>
-          <p>No API key or token to copy.</p>
+          <p>Every computer gets its own secure connection. No API key or token to copy.</p>
         </Surface>
 
         <Surface as="section" className="mcp-test-card rounded-lg border border-kumo-hairline p-6">

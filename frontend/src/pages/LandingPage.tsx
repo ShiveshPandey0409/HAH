@@ -5,7 +5,7 @@ import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
-const mcpInstallCommand = `npx add-mcp ${mcpUrl}`
+const mcpInstallCommand = `npx add-mcp ${mcpUrl} -g -n hah`
 
 export function LandingPage() {
   return (
