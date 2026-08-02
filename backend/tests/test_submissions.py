@@ -107,8 +107,13 @@ async def test_submission_requires_owner_complete_strict_proofs(client: AsyncCli
         "strict",
         proof_requirements=["url", "screenshot"],
     )
-
-    wrong_owner = await submit(client, claim_id, uuid4(), [url_proof(), screenshot_proof()])
+    wrong_owner_id = await create_user(client, email="wrong-submission-owner@example.com")
+    wrong_owner = await submit(
+        client,
+        claim_id,
+        wrong_owner_id,
+        [url_proof(), screenshot_proof()],
+    )
     incomplete = await submit(client, claim_id, freelancer_id, [url_proof()])
     insecure_url = await submit(
         client,
@@ -268,8 +273,13 @@ async def test_failed_verification_rejects_claim_and_wrong_creator_is_hidden(
     creator_id, freelancer_id, claim_id = await claimed_work(client, "failed")
     created = await submit(client, claim_id, freelancer_id, [url_proof()])
     submission_id = UUID(created.json()["id"])
-
-    wrong_creator = await verify(client, submission_id, uuid4(), result="passed")
+    wrong_creator_id = await create_user(
+        client,
+        email="wrong-verification-creator@example.com",
+        can_create_tasks=True,
+        can_work_tasks=False,
+    )
+    wrong_creator = await verify(client, submission_id, wrong_creator_id, result="passed")
     missing_reason = await verify(client, submission_id, creator_id, result="failed")
     failed = await verify(
         client,

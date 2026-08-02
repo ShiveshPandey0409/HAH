@@ -297,7 +297,7 @@ async def test_feed_distinguishes_missing_and_non_worker_users(client: AsyncClie
     missing = await client.get(f"/v1/freelancers/{uuid4()}/bounties")
     non_worker = await client.get(f"/v1/freelancers/{non_worker_id}/bounties")
 
-    assert missing.status_code == 404
+    assert missing.status_code == 403
     assert non_worker.status_code == 422
 
 
@@ -529,7 +529,7 @@ async def test_claim_not_found_errors_do_not_create_rows(client: AsyncClient) ->
     missing_profile = await claim(client, bounty_id, freelancer_id, uuid4())
 
     assert missing_bounty.status_code == 404
-    assert missing_freelancer.status_code == 404
+    assert missing_freelancer.status_code == 401
     assert missing_profile.status_code == 404
     async with AsyncSessionFactory() as session:
         count = await session.scalar(text("SELECT count(*) FROM bounty_claims"))
@@ -726,7 +726,7 @@ async def test_openapi_contains_marketplace_endpoints(client: AsyncClient) -> No
     assert paths["/v1/freelancers/{freelancer_id}/bounties"]["get"]
     claim_operation = paths["/v1/bounties/{bounty_id}/claims"]["post"]
     assert claim_operation["responses"]["201"]
-    claim_schema = response.json()["components"]["schemas"]["BountyClaimCreate"]
+    claim_schema = response.json()["components"]["schemas"]["BountyClaimRequest"]
     assert claim_schema["additionalProperties"] is False
 
 
@@ -743,8 +743,8 @@ async def test_unexpected_database_error_returns_safe_generic_500(
         )
 
     monkeypatch.setattr(marketplace_routes, "get_eligible_bounties", fail_feed)
-
-    response = await client.get(f"/v1/freelancers/{uuid4()}/bounties")
+    freelancer_id = await create_user(client, email="safe-feed-error@example.com")
+    response = await client.get(f"/v1/freelancers/{freelancer_id}/bounties")
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Internal Server Error"}

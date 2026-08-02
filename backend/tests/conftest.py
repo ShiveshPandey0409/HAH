@@ -37,6 +37,7 @@ os.environ.setdefault(
 )
 
 from app.main import app  # noqa: E402
+from tests.authenticated_client import AuthenticatedMilestoneClient  # noqa: E402
 
 
 async def reset_to_sql_baseline() -> None:
@@ -78,5 +79,8 @@ async def clean_users(migrated_database: None) -> AsyncIterator[None]:
 @pytest_asyncio.fixture
 async def client(migrated_database: None) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as test_client:
+    async with AuthenticatedMilestoneClient(
+        transport=transport,
+        base_url="http://test",
+    ) as test_client:
         yield test_client

@@ -17,6 +17,8 @@ OAuth, token storage, or automatic posting.
 PUT /v1/users/{user_id}/social-profiles/{platform}
 ```
 
+The bearer session is required and `user_id` must equal the logged-in user.
+
 Request:
 
 ```json
@@ -41,6 +43,8 @@ Return the saved URL and enrichment state. Do not return the provider's raw payl
 ```http
 GET /v1/users/{user_id}/social-profiles
 ```
+
+The bearer session is required and `user_id` must equal the logged-in user.
 
 Return platform, normalized URL, public metrics, last enrichment time, and whether
 the provider validated the profile.

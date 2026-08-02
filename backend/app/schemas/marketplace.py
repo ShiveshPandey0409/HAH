@@ -34,6 +34,12 @@ class BountyClaimCreate(BaseModel):
     social_account_id: UUID
 
 
+class BountyClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    social_account_id: UUID
+
+
 class BountyClaimResponse(BaseModel):
     id: UUID
     bounty_id: UUID

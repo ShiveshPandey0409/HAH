@@ -14,6 +14,8 @@ without oversubscribing the bounty during concurrent requests.
 GET /v1/freelancers/{freelancer_id}/bounties
 ```
 
+The bearer session is required and `freelancer_id` must equal the logged-in user.
+
 Return only currently claimable bounties. The response includes task/bounty
 instructions, platform, action, reward, currency, effective deadline, required
 proof types, and remaining slots. It does not expose other freelancers or raw
@@ -29,10 +31,11 @@ Request:
 
 ```json
 {
-  "freelancer_id": "uuid",
   "social_account_id": "uuid"
 }
 ```
+
+The claim's freelancer comes from the bearer session, not the request body.
 
 Return `201 Created` with the claim and its fixed reward snapshot.
 

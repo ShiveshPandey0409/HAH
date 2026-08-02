@@ -13,6 +13,8 @@ results for submission, verification, MCP, and payment events.
 PUT /v1/users/{creator_id}/webhook
 ```
 
+The bearer session is required and `creator_id` must equal the logged-in creator.
+
 Request contains an HTTPS destination and the supported event subscriptions. Return
 the generated signing secret once; store only its secure hash or encrypted secret
 material required by the chosen signing design.
@@ -22,6 +24,8 @@ material required by the chosen signing design.
 ```http
 GET /v1/users/{creator_id}/webhook
 ```
+
+The bearer session is required and `creator_id` must equal the logged-in creator.
 
 Return destination, subscriptions, and delivery configuration without the signing
 secret.

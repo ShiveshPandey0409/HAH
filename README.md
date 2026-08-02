@@ -44,13 +44,14 @@ events. The configured keys encrypt both webhook signing secrets and capability 
 Replace the development-only example before any deployment; staging and production
 modes reject that public key.
 
-Create a user:
+Create an account and save the returned `access_token`:
 
 ```bash
-curl --request POST http://localhost:8000/v1/users \
+curl --request POST http://localhost:8000/v1/auth/signup \
   --header 'Content-Type: application/json' \
   --data '{
     "email": "worker@example.com",
+    "password": "replace-with-a-long-password",
     "display_name": "Marketing Freelancer",
     "can_create_tasks": false,
     "can_work_tasks": true,
@@ -58,17 +59,31 @@ curl --request POST http://localhost:8000/v1/users \
   }'
 ```
 
+Human account endpoints are `POST /v1/auth/signup`, `POST /v1/auth/login`,
+`GET /v1/auth/me`, `POST /v1/auth/logout`, `POST /v1/auth/change-password`,
+`POST /v1/auth/forgot-password`, and `POST /v1/auth/reset-password`. Except for
+signup, login, and password recovery, every `/v1` operation requires
+`Authorization: Bearer <access_token>`. Password-reset email uses SMTP; staging
+and production fail startup when SMTP or an HTTPS reset URL is missing.
+
 Task endpoints:
 
 - `POST /v1/tasks` creates one draft task with all bounties atomically.
-- `GET /v1/tasks/{task_id}` reads the task and current slot counts.
+- `GET /v1/tasks` lists the logged-in creator's tasks.
+- `GET /v1/tasks/{task_id}` reads an owned task and current slot counts.
+- `PUT /v1/tasks/{task_id}` atomically replaces an owned draft and its bounties.
+- `DELETE /v1/tasks/{task_id}` deletes an owned draft.
 - `POST /v1/tasks/{task_id}/open` opens a valid draft task and its draft bounties.
+
+Replacing or deleting an opened task is rejected so claims, submissions, audits,
+and later payment records cannot be rewritten. Actor IDs are derived from the
+session and are not accepted in task, claim, submission, or verification bodies.
 
 Marketplace endpoints:
 
 - `PUT /v1/users/{user_id}/social-profiles/{platform}` normalizes a public Reddit
   or LinkedIn profile URL and enriches it through the configured provider adapter.
-- `GET /v1/users/{user_id}/social-profiles` returns safe current public metrics.
+- `GET /v1/users/{user_id}/social-profiles` returns the logged-in user's safe metrics.
 - `GET /v1/freelancers/{freelancer_id}/bounties` returns only eligible open work.
 - `POST /v1/bounties/{bounty_id}/claims` atomically reserves one remaining slot and
   stores a fixed reward/currency snapshot.
@@ -85,6 +100,11 @@ Completion endpoints:
 No enrichment vendor is selected in this repository. The default adapter returns
 `503` while preserving the submitted URL as unvalidated; deployments must supply a
 vendor adapter. Provider-neutral fake adapters cover the complete flow in tests.
+
+The canonical account record is `users.id`. Human sessions and MCP OAuth identities
+both reference that row, so the same person owns HTTP and agent actions. They do not
+share bearer tokens: `/v1` accepts only HAH login sessions, while `/mcp` accepts only
+OAuth access tokens and maps the verified delegation back to the same user.
 
 The MCP Streamable HTTP endpoint is `/mcp` and is an OAuth 2.1 protected resource.
 An external OAuth/OIDC authorization server owns user login, consent, authorization

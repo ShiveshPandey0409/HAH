@@ -15,6 +15,10 @@ of done.
 - Eligibility can use only the configured follower or Reddit karma range.
 - The user profile has no trust score or general status field.
 - Raw payment-card data is never accepted or stored by this backend.
+- `users.id` is the canonical identity for both human HTTP sessions and MCP OAuth
+  delegations. Email claims never auto-link an OAuth identity.
+- Signup/login/password recovery are public; every business `/v1` route requires a
+  revocable HAH session. MCP accepts only scoped OAuth access tokens.
 
 ## Plans and dependency order
 

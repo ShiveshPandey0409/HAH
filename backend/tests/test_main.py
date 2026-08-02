@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -78,4 +79,41 @@ async def test_lifespan_disposes_engine_after_application_error() -> None:
             async with lifespan(test_app):
                 raise RuntimeError("application failed")
 
+    dispose.assert_awaited_once()
+
+
+async def test_lifespan_runs_embedded_webhook_worker_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispose = AsyncMock()
+    fake_engine = SimpleNamespace(dispose=dispose)
+    runtime = object()
+    worker_started = asyncio.Event()
+
+    @asynccontextmanager
+    async def run_session_manager():
+        yield
+
+    async def run_worker(*, runtime: object, stop_event: asyncio.Event) -> None:
+        worker_started.set()
+        await stop_event.wait()
+
+    fake_server = SimpleNamespace(
+        session_manager=SimpleNamespace(run=run_session_manager),
+    )
+    test_app = FastAPI()
+    test_app.state.mcp_server = fake_server
+    test_app.state.webhook_runtime = runtime
+    monkeypatch.setattr(main_module.settings, "webhook_worker_enabled", True)
+
+    with (
+        patch("app.main.engine", fake_engine),
+        patch("app.main.run_webhook_worker", side_effect=run_worker) as worker,
+    ):
+        async with lifespan(test_app):
+            await asyncio.wait_for(worker_started.wait(), timeout=1)
+
+    worker.assert_called_once()
+    assert worker.call_args.kwargs["runtime"] is runtime
+    assert worker.call_args.kwargs["stop_event"].is_set()
     dispose.assert_awaited_once()

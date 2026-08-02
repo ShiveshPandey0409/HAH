@@ -7,7 +7,8 @@ PostgreSQL database, and the full test suite passes.
 ## Baseline — user creation (Plan 01)
 
 - [x] `GET /health` and `GET /ready` are implemented.
-- [x] `POST /v1/users` is implemented and the user-creation baseline is verified.
+- [x] Account creation is exposed through `POST /v1/auth/signup`; the historical
+  user-creation service remains reusable internally.
 - [x] Validation, duplicate-email handling, rollback behavior, and safe responses
   are covered by tests.
 
@@ -20,6 +21,8 @@ PostgreSQL database, and the full test suite passes.
   rules.
 - [x] Add `POST /v1/tasks`, `POST /v1/tasks/{task_id}/open`, and
   `GET /v1/tasks/{task_id}`.
+- [x] Add authenticated aggregate CRUD: owned task listing, atomic draft replacement,
+  and draft-only deletion.
 - [x] Add scoped audit records and idempotency handling for MCP requests. Legacy
   API-client rows remain as historical data only.
 - [x] Implement MCP `create_task` through the same task service with
@@ -29,11 +32,10 @@ PostgreSQL database, and the full test suite passes.
   and duplicate/concurrent idempotent calls.
 - [x] Run migrations from an empty database, run the complete test suite, smoke
   test HTTP and MCP end to end, then open PR 1.
-- [ ] Before public deployment, define manual HTTP session authentication and
-  replace caller-supplied user IDs with authenticated principals. The current
-  prototype intentionally authenticates MCP only. Until that is fixed, anonymous
-  callers can overwrite another user's verified social profile or consume another
-  freelancer's lifetime bounty claim, causing availability and data loss.
+- [x] Add revocable HTTP sessions and password recovery, remove anonymous user
+  creation, derive creator/freelancer/verifier identity from the session, and protect
+  every `/v1` business route. MCP remains OAuth-only and maps its external delegation
+  to the same canonical `users.id`.
 
 ## Milestone 2 — social enrichment, eligible feed, and claims (Plans 02 and 04)
 
@@ -85,8 +87,8 @@ PostgreSQL database, and the full test suite passes.
   `changes_requested` but no public operation enters that claim state yet.
 - [x] Encrypt webhook destination URLs and signing secrets together at rest while
   preserving PUT/GET response compatibility.
-- [ ] Before public deployment, decide whether GET should mask webhook capability
-  paths/query parameters. This is coupled to the pending HTTP-principal contract.
+- [x] Restrict webhook PUT/GET to the authenticated owner and keep the destination
+  credential encrypted at rest. GET returns the clear configured URL only to that owner.
 
 ## Deferred — Prava payments (Plan 06)
 

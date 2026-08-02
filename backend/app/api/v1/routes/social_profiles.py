@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies.auth import AuthenticatedSessionDependency, require_self
 from app.db.session import get_db_session
 from app.models.task import SocialPlatform
 from app.schemas.social import SocialProfilePutRequest, SocialProfileResponse
@@ -70,7 +71,9 @@ async def put_social_profile_endpoint(
     data: SocialProfilePutRequest,
     session: SessionDependency,
     provider: ProviderDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> SocialProfileResponse:
+    require_self(authenticated, user_id)
     try:
         return await put_social_profile(
             session,
@@ -99,7 +102,9 @@ async def put_social_profile_endpoint(
 async def list_social_profiles_endpoint(
     user_id: UUID,
     session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> list[SocialProfileResponse]:
+    require_self(authenticated, user_id)
     try:
         return await list_social_profiles(session, user_id=user_id)
     except (SocialProfileUserNotFoundError, DBAPIError) as error:

@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies.auth import AuthenticatedSessionDependency
 from app.db.session import get_db_session
 from app.models.submission import VerificationMethod
 from app.schemas.submission import (
     SubmissionCreate,
+    SubmissionCreateRequest,
     SubmissionResponse,
-    SubmissionVerificationCreate,
+    SubmissionVerificationRequest,
     VerificationCommand,
 )
 from app.services.submissions import (
@@ -47,11 +49,16 @@ def _submission_http_error(error: Exception) -> HTTPException:
 )
 async def create_submission_endpoint(
     claim_id: UUID,
-    data: SubmissionCreate,
+    data: SubmissionCreateRequest,
     session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> SubmissionResponse:
+    command = SubmissionCreate(
+        freelancer_id=authenticated.user.id,
+        proofs=data.proofs,
+    )
     try:
-        return await create_submission_and_commit(session, claim_id, data)
+        return await create_submission_and_commit(session, claim_id, command)
     except (
         SubmissionNotFoundError,
         SubmissionConflictError,
@@ -67,8 +74,9 @@ async def create_submission_endpoint(
 )
 async def verify_submission_endpoint(
     submission_id: UUID,
-    data: SubmissionVerificationCreate,
+    data: SubmissionVerificationRequest,
     session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> SubmissionResponse:
     command = VerificationCommand(
         result=data.result,
@@ -81,8 +89,8 @@ async def verify_submission_endpoint(
             submission_id,
             command,
             method=VerificationMethod.MANUAL,
-            verifier_user_id=data.verifier_user_id,
-            authorized_creator_id=data.verifier_user_id,
+            verifier_user_id=authenticated.user.id,
+            authorized_creator_id=authenticated.user.id,
         )
     except (
         SubmissionNotFoundError,

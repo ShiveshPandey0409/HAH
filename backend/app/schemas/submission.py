@@ -140,6 +140,23 @@ class SubmissionCreate(BaseModel):
         return value
 
 
+class SubmissionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proofs: list[SubmissionProofCreate] = Field(min_length=1, max_length=3)
+
+    @field_validator("proofs")
+    @classmethod
+    def validate_unique_proof_types(
+        cls,
+        value: list[SubmissionProofCreate],
+    ) -> list[SubmissionProofCreate]:
+        proof_types = [proof.proof_type for proof in value]
+        if len(proof_types) != len(set(proof_types)):
+            raise ValueError("proof types cannot contain duplicates")
+        return value
+
+
 VerificationResult = Literal["passed", "failed", "review_required"]
 
 
@@ -194,6 +211,10 @@ class VerificationCommand(BaseModel):
 class SubmissionVerificationCreate(VerificationCommand):
     verifier_user_id: UUID
     method: Literal["manual"]
+
+
+class SubmissionVerificationRequest(VerificationCommand):
+    pass
 
 
 class SubmissionProofResponse(BaseModel):

@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies.auth import AuthenticatedSessionDependency, require_self
 from app.db.session import get_db_session
 from app.schemas.marketplace import (
     BountyClaimCreate,
+    BountyClaimRequest,
     BountyClaimResponse,
     EligibleBountyResponse,
 )
@@ -45,7 +47,9 @@ def _marketplace_http_error(error: Exception) -> HTTPException:
 async def get_eligible_bounties_endpoint(
     freelancer_id: UUID,
     session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> list[EligibleBountyResponse]:
+    require_self(authenticated, freelancer_id)
     try:
         return await get_eligible_bounties(session, freelancer_id)
     except (MarketplaceNotFoundError, MarketplaceValidationError, DBAPIError) as error:
@@ -59,11 +63,16 @@ async def get_eligible_bounties_endpoint(
 )
 async def claim_bounty_endpoint(
     bounty_id: UUID,
-    data: BountyClaimCreate,
+    data: BountyClaimRequest,
     session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
 ) -> BountyClaimResponse:
+    command = BountyClaimCreate(
+        freelancer_id=authenticated.user.id,
+        social_account_id=data.social_account_id,
+    )
     try:
-        return await claim_bounty(session, bounty_id, data)
+        return await claim_bounty(session, bounty_id, command)
     except (
         MarketplaceNotFoundError,
         MarketplaceConflictError,

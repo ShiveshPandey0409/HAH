@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,7 +12,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import engine
 from app.mcp.server import create_mcp_server
-from app.workers.webhooks import runtime_from_settings
+from app.workers.webhooks import run_webhook_worker, runtime_from_settings
 
 settings = get_settings()
 
@@ -32,16 +33,29 @@ async def safe_request_validation_error(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    stop_event = None
+    worker_task = None
+    if settings.webhook_worker_enabled and app.state.webhook_runtime is not None:
+        stop_event = asyncio.Event()
+        worker_task = asyncio.create_task(
+            run_webhook_worker(
+                runtime=app.state.webhook_runtime,
+                stop_event=stop_event,
+            )
+        )
     try:
         async with app.state.mcp_server.session_manager.run():
             yield
     finally:
+        if stop_event is not None and worker_task is not None:
+            stop_event.set()
+            await worker_task
         await engine.dispose()
 
 
 def create_app() -> FastAPI:
     mcp_server, mcp_http_app = create_mcp_server()
-    application = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
     application.state.mcp_server = mcp_server
     try:
         application.state.webhook_runtime = runtime_from_settings()

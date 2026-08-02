@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.task import (
     BountyAction,
@@ -35,7 +35,19 @@ def _validate_aware_deadline(value: datetime | None) -> datetime | None:
     return value
 
 
+def _ensure_future_deadlines(task: TaskInput) -> None:
+    now = datetime.now(UTC)
+    if task.deadline_at is not None and task.deadline_at <= now:
+        raise ValueError("deadline_at must be in the future")
+    if any(
+        bounty.deadline_at is not None and bounty.deadline_at <= now for bounty in task.bounties
+    ):
+        raise ValueError("bounty deadline_at must be in the future")
+
+
 class BountyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     platform: SocialPlatform
     action: BountyAction
     title: str
@@ -87,6 +99,8 @@ class BountyCreate(BaseModel):
 
 
 class TaskInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str
     description: str
     total_budget_minor: int = Field(gt=0, le=POSTGRES_BIGINT_MAX)
@@ -133,18 +147,26 @@ class MCPTaskCreateInput(TaskInput):
     pass
 
 
+class HTTPTaskCreateInput(TaskInput):
+    @model_validator(mode="after")
+    def validate_future_deadlines(self) -> Self:
+        _ensure_future_deadlines(self)
+        return self
+
+
+class HTTPTaskReplaceInput(TaskInput):
+    @model_validator(mode="after")
+    def validate_future_deadlines(self) -> Self:
+        _ensure_future_deadlines(self)
+        return self
+
+
 class TaskCreate(TaskInput):
     creator_id: UUID
 
     @model_validator(mode="after")
     def validate_future_deadlines(self) -> Self:
-        now = datetime.now(UTC)
-        if self.deadline_at is not None and self.deadline_at <= now:
-            raise ValueError("deadline_at must be in the future")
-        if any(
-            bounty.deadline_at is not None and bounty.deadline_at <= now for bounty in self.bounties
-        ):
-            raise ValueError("bounty deadline_at must be in the future")
+        _ensure_future_deadlines(self)
         return self
 
 
