@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency
+from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
 from app.db.session import get_db_session
 from app.schemas.task import HTTPTaskCreateInput, HTTPTaskReplaceInput, TaskCreate, TaskResponse
 from app.services.tasks import (
@@ -24,7 +24,11 @@ from app.services.tasks import (
     replace_task,
 )
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(
+    prefix="/tasks",
+    tags=["tasks"],
+    responses=AUTHENTICATED_RESPONSES,
+)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 

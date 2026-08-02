@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency, require_self
+from app.api.dependencies.auth import (
+    AUTHENTICATED_RESPONSES,
+    AuthenticatedSessionDependency,
+    require_self,
+)
 from app.db.session import get_db_session
 from app.models.task import SocialPlatform
 from app.schemas.social import SocialProfilePutRequest, SocialProfileResponse
@@ -27,7 +31,7 @@ from app.services.social_profiles import (
     put_social_profile,
 )
 
-router = APIRouter(tags=["social profiles"])
+router = APIRouter(tags=["social profiles"], responses=AUTHENTICATED_RESPONSES)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 ProviderDependency = Annotated[EnrichmentProvider, Depends(get_enrichment_provider)]
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency
+from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
 from app.db.session import get_db_session
 from app.schemas.payment import PaymentAuthorizationResponse, PaymentResponse, WalletResponse
 from app.services.payments import (
@@ -28,7 +28,7 @@ from app.services.payments import (
     start_task_payment_authorization_and_commit,
 )
 
-router = APIRouter(tags=["payments"])
+router = APIRouter(tags=["payments"], responses=AUTHENTICATED_RESPONSES)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 

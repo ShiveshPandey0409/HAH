@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency
+from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
 from app.db.session import get_db_session
 from app.models.submission import VerificationMethod
 from app.schemas.submission import (
@@ -31,7 +31,7 @@ from app.services.submissions import (
     verify_submission_and_commit,
 )
 
-router = APIRouter(tags=["submissions"])
+router = APIRouter(tags=["submissions"], responses=AUTHENTICATED_RESPONSES)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 
