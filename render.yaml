@@ -62,6 +62,8 @@ services:
         value: "604800"
       - key: PASSWORD_RESET_TTL_SECONDS
         value: "900"
+      - key: HACKATHON_SOCIAL_SELF_ATTESTATION_ENABLED
+        value: "true"
       - key: PASSWORD_RESET_URL
         sync: false
       - key: SMTP_HOST

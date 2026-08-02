@@ -290,11 +290,16 @@ class HTTPPravaGateway:
             expires_at = datetime.fromisoformat(str(body["expires_at"]).replace("Z", "+00:00"))
             session_id = str(body["session_id"])
             approval_url = str(body["iframe_url"])
-            authorize_only = body["authorizeOnly"]
+            # Prava's sandbox currently omits ``authorizeOnly`` from some
+            # successful mandate-session responses even though the API docs
+            # show it as ``true``. The request itself included mandate_setup,
+            # so an omitted flag is safe to accept; an explicit false still
+            # indicates the wrong checkout flow and must be rejected.
+            authorize_only = body.get("authorizeOnly")
         except (KeyError, TypeError, ValueError) as error:
             raise PravaGatewayError("PRAVA_INVALID_RESPONSE", retryable=False) from error
         if (
-            authorize_only is not True
+            authorize_only not in {None, True}
             or not session_id.startswith(("sess_", "ses_"))
             or not approval_url.startswith("https://")
             or expires_at.tzinfo is None

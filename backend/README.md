@@ -59,6 +59,11 @@ then supply `WEBHOOK_SECRET_ENCRYPTION_KEYS` as a JSON list of Fernet keys.
 For payments, supply `PRAVA_SECRET_KEY` with the dashboard's `sk_test_*` key and
 `PRAVA_PAYER_EMAIL` with the shared hackathon payer's email. Never configure the
 test card number, CVV, expiry, OTP, or passkey as Render environment variables.
+The Render hackathon service also enables
+`HACKATHON_SOCIAL_SELF_ATTESTATION_ENABLED`. This admits normalized Reddit or
+LinkedIn profile URLs with zero influence so minimum-threshold tasks can be tested
+end to end. Tasks requiring real follower or karma thresholds still require a real
+enrichment provider and cannot be claimed in this mode.
 Production startup requires this deployment-safe encryption key. External MCP OAuth
 and SMTP password-reset delivery are optional integrations: when OAuth introspection
 is absent, the MCP endpoint rejects every token; when SMTP is absent,

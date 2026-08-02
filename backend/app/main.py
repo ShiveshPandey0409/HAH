@@ -12,6 +12,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import engine
 from app.mcp.server import create_mcp_server
+from app.services.enrichment import HackathonSelfAttestedEnrichmentProvider
 from app.services.payments import (
     PaymentProviderUnavailableError,
 )
@@ -79,6 +80,8 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/docs", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     application.state.mcp_server = mcp_server
+    if settings.hackathon_social_self_attestation_enabled:
+        application.state.enrichment_provider = HackathonSelfAttestedEnrichmentProvider()
     try:
         application.state.webhook_runtime = runtime_from_settings()
     except RuntimeError:

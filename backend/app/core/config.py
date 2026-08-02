@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     http_session_ttl_seconds: int = 604800
     password_reset_ttl_seconds: int = 900
     password_reset_url: AnyHttpUrl = AnyHttpUrl("http://localhost:3000/reset-password")
+    hackathon_social_self_attestation_enabled: bool = False
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_starttls: bool = True

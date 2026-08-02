@@ -21,6 +21,7 @@ from app.services.enrichment import (
     EnrichmentRejectedError,
     EnrichmentResult,
     EnrichmentUnavailableError,
+    HackathonSelfAttestedEnrichmentProvider,
     UnavailableEnrichmentProvider,
 )
 from tests.conftest import TEST_DATABASE_URL
@@ -37,6 +38,27 @@ class FakeProvider:
         if self.error is not None:
             raise self.error
         return self.result
+
+
+async def test_hackathon_provider_only_grants_zero_influence() -> None:
+    provider = HackathonSelfAttestedEnrichmentProvider()
+    reddit = await provider.enrich(
+        platform=SocialPlatform.REDDIT,
+        profile_url="https://www.reddit.com/user/example/",
+    )
+    linkedin = await provider.enrich(
+        platform=SocialPlatform.LINKEDIN,
+        profile_url="https://www.linkedin.com/in/example/",
+    )
+
+    assert reddit.is_verified is True
+    assert reddit.follower_count == 0
+    assert reddit.reddit_post_karma == 0
+    assert reddit.reddit_comment_karma == 0
+    assert linkedin.is_verified is True
+    assert linkedin.follower_count == 0
+    assert linkedin.reddit_post_karma is None
+    assert linkedin.reddit_comment_karma is None
 
 
 def reddit_result(**overrides: object) -> EnrichmentResult:

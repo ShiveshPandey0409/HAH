@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 from httpx import AsyncClient
 from mcp import Client
+from pydantic import SecretStr
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -21,6 +22,7 @@ from app.models.task import Bounty
 from app.services import submissions as submission_service
 from app.services.api_clients import PAYMENTS_READ_SCOPE, PAYMENTS_WRITE_SCOPE
 from app.services.payments import (
+    HTTPPravaGateway,
     PaymentRuntime,
     PaymentWorkerPolicy,
     PravaGatewayError,
@@ -83,6 +85,61 @@ class FakePravaGateway:
             deduplicated=len(self.charge_references) > 1,
             visa_confirmation="SUCCESS",
         )
+
+
+def _http_prava_gateway() -> HTTPPravaGateway:
+    return HTTPPravaGateway(
+        base_url="https://sandbox.api.prava.space",
+        secret_key=SecretStr("sk_test_unit"),
+        timeout_seconds=5,
+    )
+
+
+async def _create_http_prava_session(gateway: HTTPPravaGateway) -> PravaMandateSession:
+    return await gateway.create_mandate_session(
+        customer_id="payer-1",
+        customer_email="payer@example.com",
+        amount="5.00",
+        currency="USD",
+        merchant_name="Hire a Human",
+        merchant_url="https://hah-api-prava.onrender.com",
+        merchant_country="IN",
+        task_title="Contract regression",
+        max_charges=1,
+    )
+
+
+async def test_http_prava_session_accepts_omitted_authorize_only(monkeypatch) -> None:
+    gateway = _http_prava_gateway()
+
+    async def response_without_flag(*args, **kwargs):
+        del args, kwargs
+        return {
+            "session_id": "ses_live_contract",
+            "iframe_url": "https://sandbox.collect.prava.space/session",
+            "expires_at": "2026-08-02T12:16:53.592Z",
+        }
+
+    monkeypatch.setattr(gateway, "_request", response_without_flag)
+    session = await _create_http_prava_session(gateway)
+    assert session.session_id == "ses_live_contract"
+
+
+async def test_http_prava_session_rejects_explicit_non_authorize_flow(monkeypatch) -> None:
+    gateway = _http_prava_gateway()
+
+    async def response_with_false_flag(*args, **kwargs):
+        del args, kwargs
+        return {
+            "session_id": "ses_wrong_flow",
+            "iframe_url": "https://sandbox.collect.prava.space/session",
+            "expires_at": "2026-08-02T12:16:53.592Z",
+            "authorizeOnly": False,
+        }
+
+    monkeypatch.setattr(gateway, "_request", response_with_false_flag)
+    with pytest.raises(PravaGatewayError, match="Prava sandbox request failed"):
+        await _create_http_prava_session(gateway)
 
 
 def payment_runtime(gateway: FakePravaGateway) -> PaymentRuntime:
