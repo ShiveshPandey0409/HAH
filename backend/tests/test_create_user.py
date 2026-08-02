@@ -146,6 +146,7 @@ async def test_change_password_keeps_current_session_and_revokes_other_sessions(
         "/v1/auth/login",
         json={"email": "creator@example.com", "password": PASSWORD},
     )
+    assert second_login.status_code == 200, second_login.text
     second_token = second_login.json()["access_token"]
 
     changed = await client.post(

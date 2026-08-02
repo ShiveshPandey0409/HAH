@@ -8,6 +8,12 @@ from app.models.integration import (
     OAuthDelegation,
     OAuthIdentity,
 )
+from app.models.payment import (
+    Payment,
+    PaymentAttempt,
+    PaymentAuthorization,
+    WalletEntry,
+)
 from app.models.social import SocialAccount
 from app.models.submission import ProofUpload, Submission, SubmissionProof
 from app.models.task import Bounty, Task
@@ -22,6 +28,9 @@ __all__ = [
     "OAuthAuthorizationGrant",
     "OAuthDelegation",
     "OAuthIdentity",
+    "Payment",
+    "PaymentAttempt",
+    "PaymentAuthorization",
     "PasswordResetToken",
     "ProofUpload",
     "SocialAccount",
@@ -32,4 +41,5 @@ __all__ = [
     "UserSession",
     "WebhookDelivery",
     "WebhookEndpoint",
+    "WalletEntry",
 ]

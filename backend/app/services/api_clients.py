@@ -19,12 +19,16 @@ TASKS_CREATE_SCOPE = "tasks:create"
 SUBMISSIONS_READ_SCOPE = "submissions:read"
 SUBMISSIONS_VERIFY_SCOPE = "submissions:verify"
 SUBMISSIONS_APPROVE_SCOPE = "submissions:approve"
+PAYMENTS_READ_SCOPE = "payments:read"
+PAYMENTS_WRITE_SCOPE = "payments:write"
 SUPPORTED_SCOPES = frozenset(
     {
         TASKS_CREATE_SCOPE,
         SUBMISSIONS_READ_SCOPE,
         SUBMISSIONS_VERIFY_SCOPE,
         SUBMISSIONS_APPROVE_SCOPE,
+        PAYMENTS_READ_SCOPE,
+        PAYMENTS_WRITE_SCOPE,
     }
 )
 TOKEN_PREFIX = "hah"

@@ -90,9 +90,24 @@ PostgreSQL database, and the full test suite passes.
 - [x] Restrict webhook PUT/GET to the authenticated owner and keep the destination
   credential encrypted at rest. GET returns the clear configured URL only to that owner.
 
-## Deferred — Prava payments (Plan 06)
+## Milestone 4 — Prava task funding and internal wallets (Plans 06–08)
 
-- [ ] Implement only after the current three milestones are merged and the Prava
-  sandbox contract is confirmed from current provider documentation.
-- [ ] Keep payment authorization, payout execution, payment events, and payment
-  tables out of the current delivery and PRs.
+- [x] Confirm the current Prava sandbox session, mandate, charge, report, OAuth/MCP,
+  idempotency, credential, and one-charge-per-cycle contracts from official docs.
+- [x] Add a task-bound hosted mandate approval flow without accepting or storing
+  card number, CVV, expiry, OTP, passkey, or a single-use Prava credential.
+- [x] Model one idempotent Prava task-budget funding transaction and append-only,
+  non-redeemable wallet credits for every verified bounty reward.
+- [x] Make passed verification create one logical reward atomically, with bounded
+  worker retries and one task-funding charge across multiple bounties/slots.
+- [x] Add authenticated authorization, payment, retry, task-payment, and wallet HTTP
+  endpoints plus `payment.succeeded` / `payment.failed` webhooks.
+- [x] Add OAuth-scoped MCP tools for starting/refreshing human task approval and
+  reading payment/wallet status. MCP never receives the Prava secret or credentials.
+- [x] Keep the payer out of the wallet ledger and expose current-task, other-task,
+  total blocked, remaining, and additional-approval amounts through HTTP and MCP.
+- [x] Add Render Blueprint variables and local/production setup documentation.
+- [x] Test authorization ownership, multi-subtask single funding, duplicate
+  verification, retry safety, wallet idempotency, and full regression behavior.
+- [ ] Complete one live Prava sandbox approval and charge on Render after the shared
+  payer's `sk_test_*` key and email are configured by the account owner.

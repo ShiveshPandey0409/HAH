@@ -194,7 +194,7 @@ async def test_grant_rejects_unapproved_scopes_and_non_creator_users() -> None:
         can_create_tasks=False,
     )
 
-    for scopes in ({TASKS_CREATE_SCOPE}, {MCP_ACCESS_SCOPE, "payments:write"}):
+    for scopes in ({TASKS_CREATE_SCOPE}, {MCP_ACCESS_SCOPE, "payments:admin"}):
         async with AsyncSessionFactory() as session:
             with pytest.raises(OAuthDelegationValidationError):
                 await grant_oauth_delegation(

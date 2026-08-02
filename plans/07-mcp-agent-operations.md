@@ -21,6 +21,20 @@ idempotency key. It calls the verification service from Plan 05 with method `mcp
 
 Do not add tools for Reddit/LinkedIn posting or social-account login.
 
+### Payment tools
+
+- `start_task_payment_authorization` (`payments:write`) returns a task-bound Prava
+  approval URL but never charges.
+- `refresh_task_payment_authorization` (`payments:write`) confirms the human-approved
+  Prava mandate is active.
+- `get_payment_status` and `get_wallet_balance` (`payments:read`) return safe HAH
+  records only.
+
+The HAH MCP client never receives Prava's server secret or single-use credentials.
+After an OAuth-authorized agent verifies work, the backend worker performs the task
+funding through Prava REST. This matches Prava's boundary that mandate charging is
+not exposed through Prava MCP.
+
 ## OAuth delegation and database
 
 Use an external OAuth/OIDC authorization server and make HAH an OAuth 2.1 resource
@@ -105,6 +119,6 @@ must return the original result.
 
 ## Definition of done
 
-Both MCP tools work end to end, retrying a call cannot duplicate a task or
-verification, and every MCP result is auditable and safe to deliver through the
-configured webhook.
+All MCP tools work end to end, retrying a call cannot duplicate a task,
+verification, task funding, or wallet credit, and every MCP result is auditable and
+safe to deliver through the configured webhook.

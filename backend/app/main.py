@@ -12,6 +12,13 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import engine
 from app.mcp.server import create_mcp_server
+from app.services.payments import (
+    PaymentProviderUnavailableError,
+)
+from app.services.payments import (
+    runtime_from_settings as payment_runtime_from_settings,
+)
+from app.workers.payments import run_payment_worker
 from app.workers.webhooks import run_webhook_worker, runtime_from_settings
 
 settings = get_settings()
@@ -33,23 +40,33 @@ async def safe_request_validation_error(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    stop_event = None
-    worker_task = None
+    stop_event = asyncio.Event()
+    worker_tasks: list[asyncio.Task[None]] = []
     if settings.webhook_worker_enabled and app.state.webhook_runtime is not None:
-        stop_event = asyncio.Event()
-        worker_task = asyncio.create_task(
-            run_webhook_worker(
-                runtime=app.state.webhook_runtime,
-                stop_event=stop_event,
+        worker_tasks.append(
+            asyncio.create_task(
+                run_webhook_worker(
+                    runtime=app.state.webhook_runtime,
+                    stop_event=stop_event,
+                )
+            )
+        )
+    if settings.prava_payment_worker_enabled and app.state.payment_runtime is not None:
+        worker_tasks.append(
+            asyncio.create_task(
+                run_payment_worker(
+                    runtime=app.state.payment_runtime,
+                    stop_event=stop_event,
+                )
             )
         )
     try:
         async with app.state.mcp_server.session_manager.run():
             yield
     finally:
-        if stop_event is not None and worker_task is not None:
+        if worker_tasks:
             stop_event.set()
-            await worker_task
+            await asyncio.gather(*worker_tasks)
         await engine.dispose()
 
 
@@ -68,6 +85,10 @@ def create_app() -> FastAPI:
         if settings.app_env in {"staging", "production"}:
             raise
         application.state.webhook_runtime = None
+    try:
+        application.state.payment_runtime = payment_runtime_from_settings(settings)
+    except PaymentProviderUnavailableError:
+        application.state.payment_runtime = None
     application.add_exception_handler(RequestValidationError, safe_request_validation_error)
     application.include_router(api_router)
     application.mount("/", mcp_http_app)

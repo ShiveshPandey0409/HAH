@@ -11,6 +11,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.claim import BountyClaim, ClaimStatus
 from app.models.submission import (
     ProofUpload,
@@ -71,6 +72,36 @@ class SubmissionConflictError(Exception):
 
 class SubmissionValidationError(Exception):
     pass
+
+
+async def _ensure_automatic_payment(
+    session: AsyncSession,
+    *,
+    submission: Submission,
+    claim: BountyClaim,
+    bounty: Bounty,
+    creator_id: UUID,
+) -> None:
+    if not get_settings().prava_payment_automation_enabled:
+        return
+    from app.services.payments import (
+        PaymentAuthorizationRequiredError,
+        PaymentValidationError,
+        ensure_payment_for_verified_submission,
+    )
+
+    try:
+        await ensure_payment_for_verified_submission(
+            session,
+            submission=submission,
+            claim=claim,
+            bounty=bounty,
+            creator_id=creator_id,
+        )
+    except PaymentAuthorizationRequiredError as error:
+        raise SubmissionConflictError(str(error)) from error
+    except PaymentValidationError as error:
+        raise SubmissionValidationError(str(error)) from error
 
 
 def _sqlstate(error: DBAPIError) -> str | None:
@@ -202,9 +233,7 @@ async def _submission_response(
         for upload in (
             list(
                 (
-                    await session.scalars(
-                        select(ProofUpload).where(ProofUpload.id.in_(upload_ids))
-                    )
+                    await session.scalars(select(ProofUpload).where(ProofUpload.id.in_(upload_ids)))
                 ).all()
             )
             if upload_ids
@@ -489,9 +518,7 @@ async def create_submission(
             list(
                 (
                     await session.scalars(
-                        select(ProofUpload)
-                        .where(ProofUpload.id.in_(upload_ids))
-                        .with_for_update()
+                        select(ProofUpload).where(ProofUpload.id.in_(upload_ids)).with_for_update()
                     )
                 ).all()
             )
@@ -501,15 +528,19 @@ async def create_submission(
     }
     if len(uploads) != len(upload_ids):
         raise SubmissionValidationError("A proof upload does not exist")
-    already_used_upload_ids = set(
-        (
-            await session.scalars(
-                select(SubmissionProof.upload_id).where(
-                    SubmissionProof.upload_id.in_(upload_ids)
+    already_used_upload_ids = (
+        set(
+            (
+                await session.scalars(
+                    select(SubmissionProof.upload_id).where(
+                        SubmissionProof.upload_id.in_(upload_ids)
+                    )
                 )
-            )
-        ).all()
-    ) if upload_ids else set()
+            ).all()
+        )
+        if upload_ids
+        else set()
+    )
     if already_used_upload_ids:
         raise SubmissionConflictError("A proof upload has already been submitted")
     for proof in data.proofs:
@@ -669,7 +700,10 @@ def _verification_is_exact_replay(
                 target_status in _FINAL_VERIFICATION_STATUSES and submission.verified_at is not None
             )
         )
-        and claim.status == expected_claim_status
+        and (
+            claim.status == expected_claim_status
+            or (target_status == VerificationStatus.PASSED and claim.status == ClaimStatus.PAID)
+        )
     )
 
 
@@ -708,6 +742,14 @@ async def verify_submission(
             command=command,
             verifier_user_id=verifier_user_id,
         ):
+            if target_status == VerificationStatus.PASSED:
+                await _ensure_automatic_payment(
+                    session,
+                    submission=submission,
+                    claim=claim,
+                    bounty=bounty,
+                    creator_id=creator_id,
+                )
             return await _submission_response(session, submission, claim)
         raise SubmissionConflictError("Verification already has a final result")
 
@@ -756,6 +798,14 @@ async def verify_submission(
         raise
 
     response = await _submission_response(session, submission, claim)
+    if target_status == VerificationStatus.PASSED:
+        await _ensure_automatic_payment(
+            session,
+            submission=submission,
+            claim=claim,
+            bounty=bounty,
+            creator_id=creator_id,
+        )
     if target_status in _FINAL_VERIFICATION_STATUSES:
         await _emit_event(
             event_sink,

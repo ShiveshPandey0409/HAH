@@ -156,7 +156,7 @@ async def test_delegation_is_unique_per_identity_and_client() -> None:
     )
     for client_id, scopes in (
         ("missing-base-scope", "ARRAY['tasks:create']"),
-        ("unsupported-scope", "ARRAY['mcp:access', 'payments:write']"),
+        ("unsupported-scope", "ARRAY['mcp:access', 'payments:admin']"),
     ):
         await assert_rejected(
             f"""

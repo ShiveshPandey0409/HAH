@@ -56,6 +56,9 @@ render blueprints validate render.yaml
 
 Connect the private `ShiveshPandey0409/HAH` repository to the Render workspace,
 then supply `WEBHOOK_SECRET_ENCRYPTION_KEYS` as a JSON list of Fernet keys.
+For payments, supply `PRAVA_SECRET_KEY` with the dashboard's `sk_test_*` key and
+`PRAVA_PAYER_EMAIL` with the shared hackathon payer's email. Never configure the
+test card number, CVV, expiry, OTP, or passkey as Render environment variables.
 Production startup requires this deployment-safe encryption key. External MCP OAuth
 and SMTP password-reset delivery are optional integrations: when OAuth introspection
 is absent, the MCP endpoint rejects every token; when SMTP is absent,
@@ -91,6 +94,13 @@ marketplace, submissions, verification, and webhook configuration:
 - `GET /v1/tasks/{task_id}/submissions`
 - `GET /v1/submissions/{submission_id}/proofs/{proof_id}/content`
 - `POST /v1/submissions/{submission_id}/verification`
+- `POST /v1/tasks/{task_id}/payment-authorization`
+- `POST /v1/tasks/{task_id}/payment-authorization/refresh`
+- `GET /v1/tasks/{task_id}/payment-authorization`
+- `GET /v1/tasks/{task_id}/payments`
+- `GET /v1/submissions/{submission_id}/payment`
+- `GET /v1/payments/{payment_id}`, `POST /v1/payments/{payment_id}/retry`
+- `GET /v1/wallet`
 - `PUT /v1/users/{creator_id}/webhook`
 - `GET /v1/users/{creator_id}/webhook`
 
@@ -174,6 +184,8 @@ to it. Before an MCP token can be used, the trusted post-consent flow maps its e
 `client_id`. Email claims are never used for account linking. Every token needs
 `mcp:access`; `create_task` additionally needs `tasks:create`; verification needs
 `submissions:verify`, plus `submissions:approve` when the result is `passed`.
+Starting or refreshing a Prava task authorization needs `payments:write`; reading a
+payment or wallet needs `payments:read`.
 The read-only `get_submission_proofs` tool needs `submissions:read` and returns URL
 metadata plus uploaded screenshots/images as native MCP image content.
 HTTP and MCP operations share the same services. MCP idempotency is isolated per
@@ -192,14 +204,88 @@ non-routing sentinel rather than plaintext capability paths/query strings; PUT a
 still return the normalized destination URL. `submission.created`, `verification.completed`, and
 `mcp_request.completed` are enqueued in the business transaction, signed over the
 stored canonical JSON bytes, and delivered by the worker with bounded retries.
-Destinations must resolve only to public unicast addresses. Payment event names can
-be reserved in subscriptions, but this milestone never enqueues payment events.
+Destinations must resolve only to public unicast addresses. Successful and terminally
+failed reward payments enqueue `payment.succeeded` and `payment.failed` respectively.
 
 For a non-local deployment, set `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` to
 JSON arrays containing the public host and browser origins. The local-only defaults
 fail closed for other hosts and keep MCP DNS-rebinding protection enabled.
 
-Prava payment execution remains deliberately deferred.
+## Prava sandbox task funding
+
+This integration uses Prava's current REST mandate APIs and hosted approval page; no
+frontend SDK is required for the hackathon flow. The publishable `pk_test_*` key is
+only needed later if the Prava iframe is embedded in a frontend. The backend needs:
+
+```dotenv
+PRAVA_PAYMENT_AUTOMATION_ENABLED=true
+PRAVA_PAYMENT_WORKER_ENABLED=true
+PRAVA_BASE_URL=https://sandbox.api.prava.space
+PRAVA_SECRET_KEY=sk_test_replace_me
+PRAVA_PAYER_USER_ID=hah-universal-hackathon-payer
+PRAVA_PAYER_EMAIL=shared-payer@example.com
+PRAVA_MERCHANT_NAME=Hire a Human
+PRAVA_MERCHANT_URL=https://hah-api-prava.onrender.com
+PRAVA_MERCHANT_COUNTRY=IN
+PRAVA_SETTLEMENT_MODE=prava_sandbox
+```
+
+Keep `PRAVA_SECRET_KEY` on the server. The shared sandbox card is entered only on the
+returned Prava URL. Do not store it in `.env`, Render, Swagger requests, MCP inputs,
+the database, logs, tests, or screenshots committed to Git.
+
+The API sequence for a logged-in task creator is:
+
+```bash
+# 1. Create a task, then start its task-budget authorization.
+curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization" \
+  -H "Authorization: Bearer $CREATOR_TOKEN"
+
+# 2. Open approval_url from the response and approve on Prava's hosted page.
+# 3. Refresh until status is active.
+curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization/refresh" \
+  -H "Authorization: Bearer $CREATOR_TOKEN"
+
+# 4. After an approved proof, inspect the logical reward and worker result.
+curl "$API/v1/submissions/$SUBMISSION_ID/payment" \
+  -H "Authorization: Bearer $CREATOR_TOKEN"
+
+# 5. The freelancer reads the resulting internal credit.
+curl "$API/v1/wallet" -H "Authorization: Bearer $FREELANCER_TOKEN"
+```
+
+`POST .../payment-authorization` asks Prava to block the task's exact total budget. It
+does not create a creator/HAH wallet and does not charge yet. Its response shows the
+current task reservation, remaining budget, amounts blocked by the creator's other
+tasks, and whether this task still needs approval. The first passed submission
+schedules one idempotent Prava sandbox charge for that task budget. After it succeeds,
+the first and all later verified rewards are append-only credits in the correct
+freelancer wallet. This is intentional:
+Prava recurring mandates allow one external charge per cycle, while a task may have
+many bounties and slots. It also matches the hackathon model where HAH receives the
+test funding and only task completers receive internal wallet balances.
+
+`prava_sandbox` calls the real Prava sandbox session, mandate, charge, and report APIs.
+It validates that Prava minted the single-use test credential, immediately discards
+it, and stores only safe provider references. Prava's sandbox does not move real money,
+and `/v1/wallet` explicitly returns `redeemable: false`. A production version must
+send that credential through the merchant's real processor before reporting
+`APPROVED`, plus add regulated custody/payout and redemption controls.
+
+The HAH MCP server exposes `start_task_payment_authorization`,
+`refresh_task_payment_authorization`, `get_payment_status`, and `get_wallet_balance`.
+MCP agents use the same HAH user as browser login through the OAuth delegation mapping,
+but they never receive the Prava secret or payment credentials. A human still opens
+the Prava approval URL once. Later `verify_submission` can schedule the reward; the
+server-side worker performs the Prava REST charge because Prava deliberately does not
+expose mandate charging through its own MCP tools.
+
+Official contract references: [create a mandate session](https://docs.prava.space/api-reference/create-session),
+[mandate rules](https://docs.prava.space/concepts/mandates),
+[charge a mandate](https://docs.prava.space/api-reference/mandate-charge),
+[report a mandate charge](https://docs.prava.space/api-reference/mandate-report),
+[sandbox behavior](https://docs.prava.space/api-reference/testing), and
+[Prava MCP tools](https://docs.prava.space/mcp/tools).
 
 The backend application lives only in `backend/app/`. Database migrations, tests,
 dependency metadata, and local PostgreSQL services also live under `backend/`.

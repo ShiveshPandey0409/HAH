@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.payment import PaymentAuthorization
 from app.models.task import Bounty, BountyStatus, Task, TaskStatus
 from app.models.user import User
 from app.schemas.task import BountyResponse, TaskCreate, TaskCreationSource, TaskResponse
@@ -302,6 +303,12 @@ async def replace_task(
         raise TaskOwnershipError
     if task.status != TaskStatus.DRAFT:
         raise TaskStateConflictError("only a draft task can be replaced")
+    if await session.scalar(
+        select(PaymentAuthorization.id).where(PaymentAuthorization.task_id == task.id)
+    ):
+        raise TaskStateConflictError(
+            "a task with a Prava budget authorization cannot be replaced"
+        )
 
     try:
         await session.execute(delete(Bounty).where(Bounty.task_id == task.id))
@@ -358,6 +365,12 @@ async def delete_task(
         raise TaskOwnershipError
     if task.status != TaskStatus.DRAFT:
         raise TaskStateConflictError("only a draft task can be deleted")
+    if await session.scalar(
+        select(PaymentAuthorization.id).where(PaymentAuthorization.task_id == task.id)
+    ):
+        raise TaskStateConflictError(
+            "a task with a Prava budget authorization cannot be deleted"
+        )
     try:
         await session.delete(task)
         await session.commit()
