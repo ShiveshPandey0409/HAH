@@ -8,7 +8,7 @@ import html
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote, urlencode, urlsplit
 from uuid import UUID, uuid4
 
 from cryptography.fernet import InvalidToken, MultiFernet
@@ -107,6 +107,18 @@ def _new_credential(prefix: str) -> str:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _csp_source_for_redirect_uri(redirect_uri: str) -> str:
+    """Return the validated redirect origin as a CSP host source."""
+    parsed = urlsplit(redirect_uri)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        raise ValueError("OAuth redirect URI must use HTTP or HTTPS")
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{host}{port}"
 
 
 class FirstPartyOAuthProvider(
@@ -792,6 +804,7 @@ class FirstPartyOAuthProvider(
         )
         error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
         escaped_handle = html.escape(request_handle)
+        redirect_source = _csp_source_for_redirect_uri(auth_request.redirect_uri)
         body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Authorize MCP access</title><style>
@@ -852,7 +865,7 @@ form.addEventListener('submit', (event) => {{
 </main></body></html>"""
         content_security_policy = (
             f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{script_nonce}'; "
-            "form-action 'self'; "
+            f"form-action 'self' {redirect_source}; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
         return HTMLResponse(

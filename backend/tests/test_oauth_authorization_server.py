@@ -128,6 +128,10 @@ async def test_metadata_registration_and_full_pkce_token_lifecycle(
     request_handle = await _authorize(client, client_id, state="state-one")
     consent = await client.get("/oauth/consent", params={"request": request_handle})
     assert consent.status_code == 200
+    assert (
+        "form-action 'self' http://127.0.0.1:19191"
+        in consent.headers["content-security-policy"]
+    )
     assert "OAuth integration test" in consent.text
     assert "Create campaign tasks" in consent.text
     assert "Read sandbox balances" in consent.text
