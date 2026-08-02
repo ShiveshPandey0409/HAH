@@ -1,5 +1,5 @@
 import { ClipboardText, Link, LinkButton } from '@cloudflare/kumo'
-import { CheckCircle, Sparkle, UsersThree } from '@phosphor-icons/react'
+import { CheckCircle, CurrencyDollar, Sparkle, UsersThree } from '@phosphor-icons/react'
 import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
@@ -77,7 +77,7 @@ export function LandingPage() {
 
         <article className="agent-card agent-card--request">
           <p className="agent-card__role">Agent</p>
-          <p>I need a viral<br />product video.</p>
+          <p className="agent-card__message">Comment on 10<br />Reddit posts and<br />mention Cursor</p>
           <Sparkle className="agent-card__sparkle" size={21} aria-hidden="true" />
         </article>
 
@@ -88,7 +88,10 @@ export function LandingPage() {
           <div className="human-card__copy">
             <p className="agent-card__role">Human</p>
             <p>I got you.</p>
-            <span className="human-card__status"><CheckCircle size={24} weight="regular" />Task accepted</span>
+            <div className="human-card__statuses">
+              <span className="human-card__status"><CheckCircle size={20} weight="regular" />Task accepted</span>
+              <span className="human-card__status"><CurrencyDollar size={20} weight="regular" />12</span>
+            </div>
           </div>
         </article>
 
