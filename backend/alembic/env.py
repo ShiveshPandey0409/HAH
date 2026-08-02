@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.db.alembic_config import escape_alembic_config_value
 from app.db.base import Base
+from app.db.database_url import normalize_async_database_url
 from app.models import (  # noqa: F401
     APIClient,
     Bounty,
@@ -20,11 +21,13 @@ from app.models import (  # noqa: F401
     OAuthAuthorizationGrant,
     OAuthDelegation,
     OAuthIdentity,
+    PasswordResetToken,
     SocialAccount,
     Submission,
     SubmissionProof,
     Task,
     User,
+    UserSession,
     WebhookDelivery,
     WebhookEndpoint,
 )
@@ -34,7 +37,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+database_url = normalize_async_database_url(
+    os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+)
 config.set_main_option("sqlalchemy.url", escape_alembic_config_value(database_url))
 target_metadata = Base.metadata
 managed_tables = frozenset(target_metadata.tables)

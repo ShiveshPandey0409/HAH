@@ -5,6 +5,7 @@ import json
 
 import pytest
 from alembic.config import Config
+from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -40,7 +41,7 @@ async def test_sql_baseline_is_upgraded_to_alembic_head() -> None:
     finally:
         await engine.dispose()
 
-    assert revision == "20260802_0006"
+    assert revision == "20260802_0007"
 
 
 async def test_legacy_mcp_actor_and_scopes_are_backfilled_on_upgrade() -> None:
@@ -156,7 +157,33 @@ async def test_oauth_rows_block_lossy_downgrade() -> None:
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    assert revision == "20260802_0006"
+    assert revision == "20260802_0007"
+
+
+async def test_http_auth_rows_block_lossy_downgrade(client: AsyncClient) -> None:
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={
+            "email": "auth-downgrade@example.com",
+            "password": "correct horse battery staple",
+            "display_name": "Auth Downgrade",
+            "can_create_tasks": True,
+            "can_work_tasks": False,
+        },
+    )
+    assert signup.status_code == 201
+
+    with pytest.raises(DBAPIError) as caught:
+        await asyncio.to_thread(_downgrade, "20260802_0006")
+    assert getattr(caught.value.orig, "sqlstate", None) == "HMG02"
+
+    engine = create_async_engine(TEST_DATABASE_URL)
+    try:
+        async with engine.connect() as connection:
+            revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
+    finally:
+        await engine.dispose()
+    assert revision == "20260802_0007"
 
 
 async def test_legacy_webhook_destination_is_disabled_and_scrubbed_on_upgrade() -> None:

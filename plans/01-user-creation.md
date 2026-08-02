@@ -12,6 +12,16 @@ This plan does not include login, authentication-provider integration, social
 profiles, enrichment, tasks, bounties, MCP, verification, Prava payments, workers,
 or webhooks.
 
+## Authentication addendum
+
+The original user-creation milestone was intentionally internal and unauthenticated.
+Before public deployment it was superseded by `POST /v1/auth/signup`. The current
+account lifecycle is signup, login, me, logout, change password, forgot password,
+and reset password. Passwords use salted scrypt hashes; login and reset credentials
+are stored only as SHA-256 hashes. Business endpoints derive the actor from the
+revocable session instead of accepting a user ID. MCP OAuth identities and browser
+sessions both reference the same `users.id`.
+
 ## User fields
 
 The endpoint uses the existing `users` table.

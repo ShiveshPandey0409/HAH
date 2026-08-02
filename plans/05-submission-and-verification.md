@@ -14,6 +14,8 @@ passed submission becomes approved for payment.
 POST /v1/claims/{claim_id}/submissions
 ```
 
+The bearer session supplies the freelancer identity.
+
 Request:
 
 ```json
@@ -35,11 +37,13 @@ flow; the database stores only the storage key and metadata.
 POST /v1/submissions/{submission_id}/verification
 ```
 
+The bearer session supplies the manual verifier identity and must belong to the
+task creator.
+
 Request:
 
 ```json
 {
-  "method": "manual",
   "result": "passed",
   "checks": {},
   "failure_reason": null

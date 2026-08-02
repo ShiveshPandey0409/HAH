@@ -284,7 +284,7 @@ async def test_missing_and_creator_only_users_are_rejected(
         json={"profile_url": "https://reddit.com/user/example/"},
     )
 
-    assert missing.status_code == 404
+    assert missing.status_code == 403
     assert creator_only.status_code == 422
     assert provider.calls == []
 
@@ -654,8 +654,9 @@ async def test_unexpected_database_error_returns_safe_generic_500(
         )
 
     monkeypatch.setattr(social_profile_routes, "put_social_profile", fail_put)
+    user = await create_user(client, email="safe-profile-error@example.com")
     response = await client.put(
-        f"/v1/users/{uuid4()}/social-profiles/reddit",
+        f"/v1/users/{user['id']}/social-profiles/reddit",
         json={"profile_url": "https://reddit.com/user/safe-error"},
     )
 
@@ -674,4 +675,4 @@ async def test_profile_list_is_bare_and_missing_user_returns_404(
 
     assert empty.status_code == 200
     assert empty.json() == []
-    assert missing.status_code == 404
+    assert missing.status_code == 403

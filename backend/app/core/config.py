@@ -4,8 +4,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
+from pydantic import AnyHttpUrl, EmailStr, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.db.database_url import normalize_async_database_url
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
@@ -40,8 +42,23 @@ class Settings(BaseSettings):
     webhook_retry_cap_seconds: int = 3600
     webhook_poll_interval_seconds: float = 1.0
     webhook_response_body_limit: int = 4096
+    webhook_worker_enabled: bool = False
+    http_session_ttl_seconds: int = 604800
+    password_reset_ttl_seconds: int = 900
+    password_reset_url: AnyHttpUrl = AnyHttpUrl("http://localhost:3000/reset-password")
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_starttls: bool = True
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from_email: EmailStr | None = None
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
+
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        return normalize_async_database_url(value)
 
     @model_validator(mode="after")
     def validate_webhook_worker_settings(self) -> Settings:
@@ -63,6 +80,23 @@ class Settings(BaseSettings):
             raise ValueError("webhook lease must exceed DNS and delivery timeouts")
         if self.webhook_retry_cap_seconds < self.webhook_retry_base_seconds:
             raise ValueError("webhook retry cap must not be lower than its base")
+        if not 300 <= self.http_session_ttl_seconds <= 2_678_400:
+            raise ValueError("HTTP session TTL must be between 5 minutes and 31 days")
+        if not 300 <= self.password_reset_ttl_seconds <= 3600:
+            raise ValueError("password reset TTL must be between 5 and 60 minutes")
+        if not 1 <= self.smtp_port <= 65535:
+            raise ValueError("SMTP port must be between 1 and 65535")
+        smtp_host = (self.smtp_host or "").strip()
+        smtp_username = (self.smtp_username or "").strip()
+        smtp_password = (
+            self.smtp_password.get_secret_value() if self.smtp_password is not None else ""
+        )
+        if bool(smtp_host) != (self.smtp_from_email is not None):
+            raise ValueError("SMTP host and from email must be configured together")
+        if bool(smtp_username) != bool(smtp_password):
+            raise ValueError("SMTP username and password must be configured together")
+        if smtp_username and not smtp_host:
+            raise ValueError("SMTP authentication requires an SMTP host")
         if self.app_env in {"staging", "production"}:
             configured_keys = {
                 key.get_secret_value() for key in self.webhook_secret_encryption_keys
@@ -72,6 +106,10 @@ class Settings(BaseSettings):
             if DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY in configured_keys:
                 raise ValueError("the development webhook encryption key is not deployment-safe")
         self._validate_mcp_oauth_settings()
+        if self.app_env in {"staging", "production"} and self.password_reset_url.scheme != "https":
+            raise ValueError("deployed password reset URLs must use HTTPS")
+        if self.app_env in {"staging", "production"} and not self.smtp_configured:
+            raise ValueError(f"{self.app_env} requires SMTP password reset delivery")
         return self
 
     def _validate_mcp_oauth_settings(self) -> None:
@@ -129,6 +167,10 @@ class Settings(BaseSettings):
     @property
     def mcp_oauth_introspection_configured(self) -> bool:
         return self.mcp_oauth_introspection_url is not None
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool((self.smtp_host or "").strip()) and self.smtp_from_email is not None
 
 
 @lru_cache

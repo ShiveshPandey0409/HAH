@@ -619,7 +619,10 @@ async def test_successful_replay_does_not_execute_and_cannot_be_marked_failed(
         idempotency_key=str(arguments["idempotency_key"]),
         data=data,
     )
-    opened = await client.post(f"/v1/tasks/{created.id}/open")
+    opened = await client.post(
+        f"/v1/tasks/{created.id}/open",
+        headers=client.auth_headers(creator_id),
+    )
     assert opened.status_code == 200
     assert opened.json()["status"] == "open"
 

@@ -29,6 +29,13 @@ refresh, and revocation. HAH publishes protected-resource metadata, validates th
 exact resource audience through authenticated token introspection, and accepts no
 API-key fallback on `/mcp`.
 
+The same person who signs into the HTTP API uses the same canonical `users.id` for
+MCP. During external OAuth consent, the trusted callback binds the verified
+`(issuer, subject)` and agent `client_id` delegation to that logged-in user. Browser
+session tokens are never accepted by `/mcp`, and MCP tokens are never accepted by
+the `/v1` session dependency; the shared user ID and service layer provide the
+single source of truth.
+
 Use `oauth_identities`, `oauth_delegations`, `oauth_authorization_grants`, and
 `mcp_requests`:
 

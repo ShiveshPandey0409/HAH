@@ -14,11 +14,13 @@ its reward, slot count, influence range, proof requirements, and optional deadli
 POST /v1/tasks
 ```
 
+The bearer session supplies the creator identity; `creator_id` is not accepted in
+the request body.
+
 Request shape:
 
 ```json
 {
-  "creator_id": "uuid",
   "title": "Launch campaign",
   "description": "Campaign instructions",
   "total_budget_minor": 50000,
@@ -54,13 +56,26 @@ POST /v1/tasks/{task_id}/open
 Opening is allowed only when the task has at least one valid bounty. Payment
 authorization is handled separately in Plan 06.
 
+### List, replace, and delete owned drafts
+
+```http
+GET /v1/tasks
+PUT /v1/tasks/{task_id}
+DELETE /v1/tasks/{task_id}
+```
+
+`GET` lists only the logged-in creator's tasks. `PUT` atomically replaces a draft
+task and all its bounties using the same body as create. `DELETE` removes only a
+draft. Once opened, replacement and deletion are rejected so downstream claim,
+submission, audit, and future payment history remains stable.
+
 ### Read a task
 
 ```http
 GET /v1/tasks/{task_id}
 ```
 
-Return the task, bounties, allocated budget, remaining budget, and claim counts.
+Return an owned task, bounties, allocated budget, remaining budget, and claim counts.
 
 ## Database
 

@@ -112,6 +112,62 @@ async def test_create_read_and_open_task(client: AsyncClient) -> None:
     assert repeated.status_code == 409
 
 
+async def test_list_replace_and_delete_draft_task_with_owner_enforcement(
+    client: AsyncClient,
+) -> None:
+    creator_id = await create_user(client, email="task-crud-owner@example.com")
+    other_id = await create_user(client, email="task-crud-other@example.com")
+    created = await client.post(
+        "/v1/tasks",
+        json=task_payload(creator_id, title="Original draft"),
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    original_bounty_id = created.json()["bounties"][0]["id"]
+
+    listed = await client.get("/v1/tasks", headers=client.auth_headers(creator_id))
+    assert listed.status_code == 200
+    assert [task["id"] for task in listed.json()] == [task_id]
+
+    hidden = await client.get(
+        f"/v1/tasks/{task_id}",
+        headers=client.auth_headers(other_id),
+    )
+    assert hidden.status_code == 404
+
+    replaced = await client.put(
+        f"/v1/tasks/{task_id}",
+        json=task_payload(
+            creator_id,
+            title="Replaced draft",
+            total_budget_minor=3_000,
+            bounties=[bounty_payload(title="Replacement bounty", slot_count=3)],
+        ),
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["id"] == task_id
+    assert replaced.json()["title"] == "Replaced draft"
+    assert replaced.json()["bounties"][0]["id"] != original_bounty_id
+
+    deleted = await client.delete(f"/v1/tasks/{task_id}")
+    assert deleted.status_code == 204
+    assert (await client.get(f"/v1/tasks/{task_id}")).status_code == 404
+
+
+async def test_open_task_cannot_be_replaced_or_deleted(client: AsyncClient) -> None:
+    creator_id = await create_user(client, email="task-crud-open@example.com")
+    created = await client.post("/v1/tasks", json=task_payload(creator_id))
+    task_id = created.json()["id"]
+    assert (await client.post(f"/v1/tasks/{task_id}/open")).status_code == 200
+    assert (
+        await client.put(
+            f"/v1/tasks/{task_id}",
+            json=task_payload(creator_id, title="Too late"),
+        )
+    ).status_code == 409
+    assert (await client.delete(f"/v1/tasks/{task_id}")).status_code == 409
+
+
 @pytest.mark.parametrize(
     ("platform", "action", "influence_metric"),
     [
@@ -158,7 +214,7 @@ async def test_creator_capability_and_missing_creator_errors(client: AsyncClient
     missing = await client.post("/v1/tasks", json=task_payload(uuid4()))
 
     assert forbidden.status_code == 422
-    assert missing.status_code == 404
+    assert missing.status_code == 401
 
 
 async def test_dual_capability_user_can_create_task(client: AsyncClient) -> None:
@@ -246,7 +302,10 @@ async def test_open_empty_task_returns_conflict(client: AsyncClient) -> None:
         )
         await session.commit()
 
-    response = await client.post(f"/v1/tasks/{task_id}/open")
+    response = await client.post(
+        f"/v1/tasks/{task_id}/open",
+        headers=client.auth_headers(creator_id),
+    )
     assert response.status_code == 409
 
 

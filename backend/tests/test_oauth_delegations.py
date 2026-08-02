@@ -3,11 +3,13 @@ from __future__ import annotations
 from uuid import UUID
 
 import pytest
+from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db.session import AsyncSessionFactory
 from app.mcp.oauth import MCP_ACCESS_SCOPE
-from app.models.integration import IntegrationStatus
+from app.models.integration import IntegrationStatus, OAuthIdentity
 from app.models.user import User
 from app.services.api_clients import SUBMISSIONS_APPROVE_SCOPE, TASKS_CREATE_SCOPE
 from app.services.oauth_delegations import (
@@ -34,6 +36,40 @@ async def create_creator(email: str, *, can_create_tasks: bool = True) -> UUID:
         session.add(user)
         await session.commit()
         return user.id
+
+
+async def test_password_login_and_mcp_oauth_share_one_canonical_user(
+    client: AsyncClient,
+) -> None:
+    signup = await client.post(
+        "/v1/auth/signup",
+        json={
+            "email": "shared-http-mcp@example.com",
+            "password": "correct horse battery staple",
+            "display_name": "Shared HTTP and MCP User",
+            "can_create_tasks": True,
+            "can_work_tasks": False,
+        },
+    )
+    assert signup.status_code == 201
+    user_id = UUID(signup.json()["user"]["id"])
+
+    async with AsyncSessionFactory() as session:
+        delegation = await grant_oauth_delegation(
+            session,
+            user_id=user_id,
+            issuer=ISSUER,
+            subject="shared-http-mcp-subject",
+            oauth_client_id=CLIENT_ID,
+            authorization_id="shared-http-mcp-authorization",
+            scopes={MCP_ACCESS_SCOPE, TASKS_CREATE_SCOPE},
+        )
+
+    async with AsyncSessionFactory() as session:
+        identity_user_id = await session.scalar(
+            select(OAuthIdentity.user_id).where(OAuthIdentity.id == delegation.identity_id)
+        )
+    assert identity_user_id == user_id
 
 
 async def test_grant_reconsent_revoke_and_exact_identity_binding() -> None:

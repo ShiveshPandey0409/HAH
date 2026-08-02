@@ -123,6 +123,9 @@ def test_deployments_require_https_mcp_oauth_configuration(app_env: str) -> None
         "webhook_secret_encryption_keys": [Fernet.generate_key().decode()],
         "mcp_oauth_introspection_client_id": "resource-server",
         "mcp_oauth_introspection_client_secret": SecretStr("deployment-secret"),
+        "password_reset_url": "https://app.example.com/reset-password",
+        "smtp_host": "smtp.example.com",
+        "smtp_from_email": "no-reply@example.com",
     }
     with pytest.raises(ValidationError, match="requires OAuth"):
         Settings(

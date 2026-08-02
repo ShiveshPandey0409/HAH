@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import bindparam, select, text
+from sqlalchemy import bindparam, delete, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.exc import DBAPIError
@@ -33,6 +33,10 @@ class TaskValidationError(Exception):
 
 
 class TaskStateConflictError(Exception):
+    pass
+
+
+class TaskOwnershipError(Exception):
     pass
 
 
@@ -141,11 +145,31 @@ async def _task_response(session: AsyncSession, task: Task) -> TaskResponse:
     )
 
 
-async def get_task(session: AsyncSession, task_id: UUID) -> TaskResponse:
+async def get_task(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    authorized_creator_id: UUID | None = None,
+) -> TaskResponse:
     task = await session.get(Task, task_id)
     if task is None:
         raise TaskNotFoundError
+    if authorized_creator_id is not None and task.creator_id != authorized_creator_id:
+        raise TaskOwnershipError
     return await _task_response(session, task)
+
+
+async def list_tasks(session: AsyncSession, creator_id: UUID) -> list[TaskResponse]:
+    tasks = list(
+        (
+            await session.scalars(
+                select(Task)
+                .where(Task.creator_id == creator_id)
+                .order_by(Task.created_at.desc(), Task.id.desc())
+            )
+        ).all()
+    )
+    return [await _task_response(session, task) for task in tasks]
 
 
 async def create_task(
@@ -198,7 +222,7 @@ async def create_task(
             raise TaskValidationError(_task_rule_message(error)) from error
         raise
 
-    return await get_task(session, task.id)
+    return await get_task(session, task.id, authorized_creator_id=data.creator_id)
 
 
 async def create_task_and_commit(
@@ -217,10 +241,17 @@ async def create_task_and_commit(
     return response
 
 
-async def open_task(session: AsyncSession, task_id: UUID) -> TaskResponse:
+async def open_task(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    authorized_creator_id: UUID,
+) -> TaskResponse:
     task = await session.scalar(select(Task).where(Task.id == task_id).with_for_update())
     if task is None:
         raise TaskNotFoundError
+    if task.creator_id != authorized_creator_id:
+        raise TaskOwnershipError
     if task.status != TaskStatus.DRAFT:
         raise TaskStateConflictError("task cannot be opened from its current state")
     if task.deadline_at is not None and task.deadline_at <= datetime.now(UTC):
@@ -252,4 +283,84 @@ async def open_task(session: AsyncSession, task_id: UUID) -> TaskResponse:
         raise
 
     session.expire_all()
-    return await get_task(session, task_id)
+    return await get_task(
+        session,
+        task_id,
+        authorized_creator_id=authorized_creator_id,
+    )
+
+
+async def replace_task(
+    session: AsyncSession,
+    task_id: UUID,
+    data: TaskCreate,
+) -> TaskResponse:
+    task = await session.scalar(select(Task).where(Task.id == task_id).with_for_update())
+    if task is None:
+        raise TaskNotFoundError
+    if task.creator_id != data.creator_id:
+        raise TaskOwnershipError
+    if task.status != TaskStatus.DRAFT:
+        raise TaskStateConflictError("only a draft task can be replaced")
+
+    try:
+        await session.execute(delete(Bounty).where(Bounty.task_id == task.id))
+        await session.flush()
+        task.title = data.title
+        task.description = data.description
+        task.total_budget_minor = data.total_budget_minor
+        task.currency = data.currency
+        task.deadline_at = data.deadline_at
+        await session.flush()
+        for bounty_data in data.bounties:
+            session.add(
+                Bounty(
+                    task_id=task.id,
+                    platform=bounty_data.platform,
+                    action=bounty_data.action,
+                    title=bounty_data.title,
+                    instructions=bounty_data.instructions,
+                    reward_minor=bounty_data.reward_minor,
+                    slots_total=bounty_data.slot_count,
+                    influence_metric=bounty_data.influence_metric,
+                    min_influence=bounty_data.min_influence,
+                    max_influence=bounty_data.max_influence,
+                    proof_requirements=bounty_data.proof_requirements,
+                    status=BountyStatus.DRAFT,
+                    deadline_at=bounty_data.deadline_at,
+                )
+            )
+        await session.flush()
+        await session.commit()
+    except DBAPIError as error:
+        await session.rollback()
+        if _is_task_rule_violation(error):
+            raise TaskValidationError(_task_rule_message(error)) from error
+        raise
+    except Exception:
+        await session.rollback()
+        raise
+
+    session.expire_all()
+    return await get_task(session, task_id, authorized_creator_id=data.creator_id)
+
+
+async def delete_task(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    authorized_creator_id: UUID,
+) -> None:
+    task = await session.scalar(select(Task).where(Task.id == task_id).with_for_update())
+    if task is None:
+        raise TaskNotFoundError
+    if task.creator_id != authorized_creator_id:
+        raise TaskOwnershipError
+    if task.status != TaskStatus.DRAFT:
+        raise TaskStateConflictError("only a draft task can be deleted")
+    try:
+        await session.delete(task)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
