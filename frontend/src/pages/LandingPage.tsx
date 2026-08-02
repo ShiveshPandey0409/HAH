@@ -1,7 +1,10 @@
-import { Link, LinkButton } from '@cloudflare/kumo'
-import { CheckCircle, PlugsConnected, Sparkle, UsersThree } from '@phosphor-icons/react'
+import { ClipboardText, Link, LinkButton } from '@cloudflare/kumo'
+import { CheckCircle, Sparkle, UsersThree } from '@phosphor-icons/react'
 import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
+
+const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
+const mcpInstallCommand = `npx add-mcp ${mcpUrl}`
 
 export function LandingPage() {
   return (
@@ -34,14 +37,12 @@ export function LandingPage() {
           </p>
 
           <div className="landing-actions">
-            <LinkButton
-              href="/connect"
-              variant="primary"
+            <ClipboardText
+              className="landing-command"
+              text={mcpInstallCommand}
               size="lg"
-              icon={<PlugsConnected />}
-            >
-              Connect MCP
-            </LinkButton>
+              tooltip={{ text: 'Copy command', copiedText: 'Copied!', side: 'top' }}
+            />
 
             <div className="landing-mobile-signup">
               <Link href="/signup?role=brand" variant="plain">Sign up as brand</Link>
