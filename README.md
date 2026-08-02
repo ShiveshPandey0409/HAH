@@ -25,7 +25,8 @@ The backend supports users, atomic task-and-bounty creation, public social-profi
 enrichment, the eligible freelancer feed and claims, proof submissions, manual/MCP
 verification, and signed retryable webhooks. Tasks and verification can be performed
 through authenticated MCP tools that reuse the HTTP business services. Prava payment
-execution remains deferred.
+authorization, automatic task funding, and internal hackathon wallet credits are
+implemented through the same services.
 
 ```bash
 cd backend
@@ -97,6 +98,17 @@ Completion endpoints:
 - `PUT /v1/users/{creator_id}/webhook` creates or rotates the signed webhook endpoint;
   `GET` returns configuration without its secret.
 
+Payment endpoints:
+
+- `POST /v1/tasks/{task_id}/payment-authorization` creates a Prava-hosted task-budget
+  approval URL; `POST .../refresh` activates it after passkey approval.
+- `GET /v1/tasks/{task_id}/payment-authorization` returns the safe authorization and
+  funding state.
+- `GET /v1/submissions/{submission_id}/payment`, `GET /v1/payments/{payment_id}`, and
+  `GET /v1/tasks/{task_id}/payments` expose authenticated status.
+- `POST /v1/payments/{payment_id}/retry` retries a terminal funding failure.
+- `GET /v1/wallet` returns the logged-in user's non-redeemable hackathon credits.
+
 No enrichment vendor is selected in this repository. The default adapter returns
 `503` while preserving the submitted URL as unvalidated; deployments must supply a
 vendor adapter. Provider-neutral fake adapters cover the complete flow in tests.
@@ -107,31 +119,47 @@ share bearer tokens: `/v1` accepts only HAH login sessions, while `/mcp` accepts
 OAuth access tokens and maps the verified delegation back to the same user.
 
 The MCP Streamable HTTP endpoint is `/mcp` and is an OAuth 2.1 protected resource.
-An external OAuth/OIDC authorization server owns user login, consent, authorization
-code + PKCE, and token issuance. HAH validates each bearer access token by
-introspection and maps its exact issuer, subject, and agent `client_id` to a locally
-approved user delegation. API keys are not accepted by `/mcp`.
+HAH now runs the matching first-party OAuth authorization server on the same backend:
+`/register`, `/authorize`, `/oauth/consent`, `/token`, and `/revoke`. The consent page
+authenticates the existing HAH account, so browser and MCP actions resolve to the same
+`users.id`. Authorization uses S256 PKCE, hashed one-time codes and tokens, rotating
+refresh tokens, and private `/oauth/introspect` validation. API keys and HAH browser
+session tokens are not accepted by `/mcp`.
 
 HAH's RFC 7662 introspection profile additionally requires `authorization_id`: an
-opaque, non-secret authorization-grant handle. The authorization server must return
+opaque, non-secret authorization-grant handle. The authorization server returns
 the same handle for every access token minted from one authorization/refresh grant,
-must issue a new never-reused handle after every new consent, and must revoke the old
-grant. The same value is recorded by the trusted local post-consent provisioning
-flow. It must never be an authorization code, access token, refresh token, ID token,
-or other credential. A token without this extension fails closed; immutable grant
+issues a new never-reused handle after every new consent, and supersedes the old
+grant. It is never an authorization code, access token, refresh token, ID token, or
+other credential. A token without this extension fails closed; immutable grant
 history prevents an old consent from being revived by reusing its handle.
 
 Every token needs `mcp:access`; `create_task` additionally needs `tasks:create`, and
 `verify_submission` needs `submissions:verify`. A `passed` verification also needs
-the narrower `submissions:approve` consent because it can become money-moving in a
-later milestone. Every successful or failed tool execution has a bounded, redacted,
+the narrower `submissions:approve` consent because it can release a task reward.
+Payment authorization tools require `payments:write`; status and
+wallet tools require `payments:read`. Every successful or failed tool execution has a bounded, redacted,
 delegation-scoped idempotency record. Access tokens are never persisted or sent to
-Prava. Payment tools and Prava execution remain disabled.
+Prava. The worker—not the MCP client—uses the server-side Prava sandbox secret.
 
-Webhook delivery currently emits `submission.created`, `verification.completed`,
-and `mcp_request.completed`. Canonical payload bytes are signed and delivered by a
+Webhook delivery emits `submission.created`, `verification.completed`,
+`payment.succeeded`, `payment.failed`, and `mcp_request.completed`. Canonical payload
+bytes are signed and delivered by a
 concurrency-safe worker with DNS/SSRF checks and bounded retry/backoff. Payment
-events and all Prava execution remain out of scope.
+credentials never enter webhook payloads.
+
+For the hackathon, one shared Prava sandbox payer authorizes each task's whole budget.
+This is a task reservation in the backend, not a HAH/creator wallet. The API and MCP
+show what the current task blocks, what other tasks still block, and whether a new
+Prava approval is required. On the first passed proof, the backend performs one
+idempotent sandbox funding charge for that task; verified subtask rewards are appended
+only to the relevant completer's internal wallet. This avoids Prava's
+one-charge-per-recurring-cycle constraint while keeping every wallet credit backed by
+the task funding record. No real money moves in sandbox and wallet redemption is
+intentionally not implemented. See
+[`backend/README.md`](backend/README.md#prava-sandbox-task-funding) for setup and the
+exact API/MCP sequence. Card number, CVV, expiry, OTP, and passkey input belong only
+on Prava's hosted page and must never be added to this repository or Render.
 
 Run the PostgreSQL integration tests against the isolated test database:
 

@@ -31,6 +31,8 @@ CURRENT_WEBHOOK_EVENT_TYPES = frozenset(
     {
         WebhookEventType.SUBMISSION_CREATED,
         WebhookEventType.VERIFICATION_COMPLETED,
+        WebhookEventType.PAYMENT_SUCCEEDED,
+        WebhookEventType.PAYMENT_FAILED,
         WebhookEventType.MCP_REQUEST_COMPLETED,
     }
 )
@@ -103,6 +105,12 @@ class SubmissionCreatedData(BaseModel):
     revision: int = Field(gt=0)
     submitted_at: datetime
     proof_types: list[ProofType] = Field(min_length=1, json_schema_extra={"uniqueItems": True})
+    submission_url: str = Field(
+        pattern=(
+            r"^/v1/submissions/[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+    )
 
     @field_validator("submitted_at")
     @classmethod
@@ -175,8 +183,40 @@ class MCPRequestCompletedData(BaseModel):
         return self
 
 
+class PaymentCompletedData(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    payment_id: UUID
+    submission_id: UUID
+    claim_id: UUID
+    bounty_id: UUID
+    task_id: UUID
+    payee_user_id: UUID
+    status: Literal["succeeded", "failed"]
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    completed_at: datetime
+    failure_code: PublicReasonCode | None = None
+
+    @field_validator("completed_at")
+    @classmethod
+    def validate_completed_at(cls, value: datetime) -> datetime:
+        return _require_aware(value, "completed_at")
+
+    @model_validator(mode="after")
+    def validate_failure(self) -> PaymentCompletedData:
+        if self.status == "succeeded" and self.failure_code is not None:
+            raise ValueError("successful payment cannot include failure_code")
+        if self.status == "failed" and self.failure_code is None:
+            raise ValueError("failed payment requires failure_code")
+        return self
+
+
 CurrentWebhookEventData = (
-    SubmissionCreatedData | VerificationCompletedData | MCPRequestCompletedData
+    SubmissionCreatedData
+    | VerificationCompletedData
+    | PaymentCompletedData
+    | MCPRequestCompletedData
 )
 
 
@@ -198,10 +238,12 @@ class WebhookEventEnvelope(BaseModel):
         expected_type = {
             WebhookEventType.SUBMISSION_CREATED: SubmissionCreatedData,
             WebhookEventType.VERIFICATION_COMPLETED: VerificationCompletedData,
+            WebhookEventType.PAYMENT_SUCCEEDED: PaymentCompletedData,
+            WebhookEventType.PAYMENT_FAILED: PaymentCompletedData,
             WebhookEventType.MCP_REQUEST_COMPLETED: MCPRequestCompletedData,
         }.get(self.type)
         if expected_type is None:
-            raise ValueError("payment webhook emission is not enabled")
+            raise ValueError("unsupported webhook event type")
         if not isinstance(self.data, expected_type):
             raise ValueError("webhook event data does not match event type")
         return self

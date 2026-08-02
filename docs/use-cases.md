@@ -34,7 +34,8 @@ The person or brand funding the marketing work. A creator can:
 - restrict a bounty using a follower or Reddit karma range;
 - require URL, screenshot, and/or image proof;
 - review or automatically verify submitted work;
-- authorize automatic Prava payouts;
+- request a task-bound Prava budget reservation for the shared hackathon payer;
+- see the amount blocked for this task and the amount still blocked by other tasks;
 - receive verification and payment results through a webhook.
 
 ### Freelancer
@@ -65,34 +66,41 @@ payment authorization, idempotency, and webhook retry state.
 
 ### Prava
 
-Prava provides the payment authorization and transaction references used for
-automatic creator-to-freelancer payouts. The platform stores provider references
-and redacted responses only. It does not store card number, CVV, or expiry.
+Prava provides the task-budget authorization and transaction reference used to fund
+HAH. Verified freelancers receive internal hackathon wallet credits rather than a
+direct Prava payout. The platform stores safe provider references and redacted
+responses only. It does not store card number, CVV, expiry, OTP, or passkeys.
+The shared payer and task creator do not receive a HAH wallet: their view is the
+task's approved/blocked, used, and remaining budget.
 
 ## End-to-end use case
 
-1. A creator signs up and connects a Prava account.
+1. A creator signs up; the hackathon operator supplies one shared Prava sandbox payer.
 2. The creator creates a task with a total budget, currency, description, and deadline.
 3. The creator adds one or more bounties.
 4. Each bounty defines its platform, post/comment action, instructions, reward,
    number of slots, influencer range, proof requirements, and optional deadline.
 5. The platform ensures the total value of all non-cancelled bounty slots does not
    exceed the task budget.
-6. A freelancer signs up and submits a public Reddit and/or LinkedIn account URL.
-7. The platform validates and normalizes the URL.
-8. The enrichment provider validates the public profile and returns its metrics.
-9. The freelancer feed shows only matching open tasks with remaining slots.
-10. The freelancer claims one slot. The database checks the platform, validated
+6. The payer approves that exact task budget on Prava's hosted page. A new task gets
+   its own approval; existing task reservations are shown but are not silently reused.
+7. A freelancer signs up and submits a public Reddit and/or LinkedIn account URL.
+8. The platform validates and normalizes the URL.
+9. The enrichment provider validates the public profile and returns its metrics.
+10. The freelancer feed shows only matching open tasks with remaining slots.
+11. The freelancer claims one slot. The database checks the platform, validated
    account, influencer range, deadline, and remaining capacity atomically.
-11. The freelancer completes the work and submits the required URLs or files.
-12. The submission is verified automatically, manually, or through MCP.
-13. Verification cannot pass until every required proof type is present.
-14. A passed submission becomes approved for payment.
-15. The platform creates one idempotent Prava payout for the exact bounty reward.
-16. Prava attempts can be retried without creating a second logical payout.
-17. A successful payout marks the freelancer's claim as paid and updates the
-    creator's task authorization usage.
-18. Verification and payment results are delivered to the creator webhook.
+12. The freelancer completes the work and submits the required URLs or files.
+13. The submission is verified automatically, manually, or through MCP.
+14. Verification cannot pass until every required proof type is present.
+15. A passed submission becomes approved for payment.
+16. If necessary, the platform makes one idempotent Prava sandbox charge to fund the
+    HAH task budget; a task is externally funded at most once.
+17. The platform appends one internal wallet credit for the exact bounty reward.
+18. Funding and reward retries cannot create a second task charge or wallet credit.
+19. A successful credit marks the freelancer's claim as paid and updates the
+    creator's allocated task authorization usage.
+20. Verification and payment results are delivered to the creator webhook.
 
 ## Eligibility rules
 
@@ -124,14 +132,19 @@ keeps its own proof and verification result.
 
 ## Payment rules
 
-- A task creator authorizes Prava with per-payment and total limits.
+- A task creator authorizes Prava for the task's total budget; the task's maximum
+  bounty reward remains the local per-reward limit.
 - The authorization must match the task creator and currency.
 - The authorization cannot exceed the task budget.
 - Only a passed submission with an approved claim can be paid.
 - The payment amount must equal the bounty reward.
 - The payer must be the task creator and the payee must be the assigned freelancer.
-- A claim and submission can each have only one logical payout.
-- Provider retries are recorded separately from the logical payment.
+- A claim and submission can each have only one logical wallet reward.
+- One task has at most one provider funding transaction; later rewards allocate from
+  the funded HAH task budget.
+- Provider retries are recorded separately from the logical reward.
+- Hackathon wallet credits are non-redeemable; real custody, withdrawals, and creator
+  payouts are deliberately outside this milestone.
 
 ## Manual, MCP, and webhook parity
 

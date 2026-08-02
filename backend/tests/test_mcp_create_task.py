@@ -31,7 +31,10 @@ from app.models.task import Bounty, Task
 from app.schemas.task import POSTGRES_BIGINT_MAX, MCPTaskCreateInput
 from app.services import mcp_requests
 from app.services.api_clients import (
+    PAYMENTS_READ_SCOPE,
+    PAYMENTS_WRITE_SCOPE,
     SUBMISSIONS_APPROVE_SCOPE,
+    SUBMISSIONS_READ_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
     APIClientPrincipal,
@@ -294,8 +297,11 @@ async def test_authenticated_mcp_http_transport_and_host_protection(client: Asyn
         "scopes_supported": [
             MCP_ACCESS_SCOPE,
             TASKS_CREATE_SCOPE,
+            SUBMISSIONS_READ_SCOPE,
             SUBMISSIONS_VERIFY_SCOPE,
             SUBMISSIONS_APPROVE_SCOPE,
+            PAYMENTS_READ_SCOPE,
+            PAYMENTS_WRITE_SCOPE,
         ],
         "bearer_methods_supported": ["header"],
     }
@@ -313,7 +319,16 @@ async def test_authenticated_mcp_http_transport_and_host_protection(client: Asyn
     assert SUBMISSIONS_VERIFY_SCOPE not in challenge
     assert SUBMISSIONS_APPROVE_SCOPE not in challenge
     assert initialized.status_code == 200
-    assert listed.json()["result"]["tools"][0]["name"] == "create_task"
+    listed_tool_names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+    assert {
+        "create_task",
+        "get_submission_proofs",
+        "verify_submission",
+        "start_task_payment_authorization",
+        "refresh_task_payment_authorization",
+        "get_payment_status",
+        "get_wallet_balance",
+    } <= listed_tool_names
     assert called.json()["result"]["structuredContent"]["created_via"] == "mcp"
     assert rebinding.status_code == 421
 

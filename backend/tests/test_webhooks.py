@@ -116,7 +116,19 @@ def test_mcp_oauth_urls_reject_user_information(
 
 
 @pytest.mark.parametrize("app_env", ["staging", "production"])
-def test_deployments_require_https_mcp_oauth_configuration(app_env: str) -> None:
+def test_deployments_allow_disabled_optional_integrations(app_env: str) -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env=app_env,
+        webhook_secret_encryption_keys=[Fernet.generate_key().decode()],
+    )
+
+    assert settings.mcp_oauth_introspection_configured is False
+    assert settings.smtp_configured is False
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_deployments_require_https_for_configured_integrations(app_env: str) -> None:
     common = {
         "_env_file": None,
         "app_env": app_env,
@@ -127,12 +139,6 @@ def test_deployments_require_https_mcp_oauth_configuration(app_env: str) -> None
         "smtp_host": "smtp.example.com",
         "smtp_from_email": "no-reply@example.com",
     }
-    with pytest.raises(ValidationError, match="requires OAuth"):
-        Settings(
-            _env_file=None,
-            app_env=app_env,
-            webhook_secret_encryption_keys=[Fernet.generate_key().decode()],
-        )
     with pytest.raises(ValidationError, match="must use HTTPS"):
         Settings(
             **common,
@@ -148,10 +154,22 @@ def test_deployments_require_https_mcp_oauth_configuration(app_env: str) -> None
 
     assert configured.mcp_oauth_introspection_configured is True
 
+    with pytest.raises(ValidationError, match="password reset URLs must use HTTPS"):
+        Settings(
+            **{
+                **common,
+                "password_reset_url": "http://localhost:3000/reset-password",
+            },
+            mcp_public_url="https://api.example.com/mcp",
+            mcp_oauth_issuer_url="https://auth.example.com/issuer",
+            mcp_oauth_introspection_url="https://auth.example.com/introspect",
+        )
+
 
 def submission_event_data(**overrides: object) -> SubmissionCreatedData:
+    submission_id = uuid4()
     values: dict[str, object] = {
-        "submission_id": uuid4(),
+        "submission_id": submission_id,
         "claim_id": uuid4(),
         "bounty_id": uuid4(),
         "task_id": uuid4(),
@@ -159,6 +177,7 @@ def submission_event_data(**overrides: object) -> SubmissionCreatedData:
         "revision": 1,
         "submitted_at": datetime(2026, 8, 2, tzinfo=UTC),
         "proof_types": ["screenshot", "url"],
+        "submission_url": f"/v1/submissions/{submission_id}",
     }
     values.update(overrides)
     return SubmissionCreatedData.model_validate(values)
@@ -322,6 +341,7 @@ def test_canonical_submission_event_is_stable_and_allowlisted() -> None:
         "revision",
         "submitted_at",
         "proof_types",
+        "submission_url",
     }
     rendered = first_body.decode()
     for forbidden in (

@@ -146,6 +146,7 @@ async def test_change_password_keeps_current_session_and_revokes_other_sessions(
         "/v1/auth/login",
         json={"email": "creator@example.com", "password": PASSWORD},
     )
+    assert second_login.status_code == 200, second_login.text
     second_token = second_login.json()["access_token"]
 
     changed = await client.post(
@@ -264,3 +265,11 @@ async def test_openapi_contains_auth_and_authenticated_task_crud(client: AsyncCl
             if method == "parameters" or (path, method) in public_operations:
                 continue
             assert operation["security"] == [{"HTTP session": []}], (path, method)
+            unauthorized = operation["responses"]["401"]
+            assert unauthorized["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/AuthenticationErrorResponse"
+            }
+            assert unauthorized["headers"]["WWW-Authenticate"]["schema"] == {
+                "type": "string",
+                "example": "Bearer",
+            }

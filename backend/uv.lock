@@ -392,6 +392,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "pydantic-settings" },
+    { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -413,6 +414,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "mcp", specifier = ">=2.0,<3" },
     { name = "pydantic-settings", specifier = ">=2.10" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35" },
 ]

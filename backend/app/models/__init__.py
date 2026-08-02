@@ -4,12 +4,22 @@ from app.models.claim import BountyClaim
 from app.models.integration import (
     APIClient,
     MCPRequest,
+    OAuthAuthorizationCode,
     OAuthAuthorizationGrant,
+    OAuthAuthorizationRequest,
     OAuthDelegation,
     OAuthIdentity,
+    OAuthIssuedToken,
+    OAuthRegisteredClient,
+)
+from app.models.payment import (
+    Payment,
+    PaymentAttempt,
+    PaymentAuthorization,
+    WalletEntry,
 )
 from app.models.social import SocialAccount
-from app.models.submission import Submission, SubmissionProof
+from app.models.submission import ProofUpload, Submission, SubmissionProof
 from app.models.task import Bounty, Task
 from app.models.user import PasswordResetToken, User, UserSession
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
@@ -19,10 +29,18 @@ __all__ = [
     "Bounty",
     "BountyClaim",
     "MCPRequest",
+    "OAuthAuthorizationCode",
     "OAuthAuthorizationGrant",
+    "OAuthAuthorizationRequest",
     "OAuthDelegation",
     "OAuthIdentity",
+    "OAuthIssuedToken",
+    "OAuthRegisteredClient",
+    "Payment",
+    "PaymentAttempt",
+    "PaymentAuthorization",
     "PasswordResetToken",
+    "ProofUpload",
     "SocialAccount",
     "Submission",
     "SubmissionProof",
@@ -31,4 +49,5 @@ __all__ = [
     "UserSession",
     "WebhookDelivery",
     "WebhookEndpoint",
+    "WalletEntry",
 ]

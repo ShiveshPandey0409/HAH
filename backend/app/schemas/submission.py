@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from typing import Any, Literal, Self
 from urllib.parse import urlsplit
@@ -15,10 +14,8 @@ from app.models.submission import VerificationMethod, VerificationStatus
 from app.schemas.task import ProofType
 
 MAX_PROOF_URL_LENGTH = 2_048
-MAX_STORAGE_KEY_LENGTH = 1_024
+MAX_PROOF_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_VERIFICATION_CHECKS_BYTES = 16_384
-_MIME_TYPE = re.compile(r"^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$")
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _has_forbidden_characters(value: str) -> bool:
@@ -52,9 +49,7 @@ class SubmissionProofCreate(BaseModel):
 
     proof_type: ProofType
     url: str | None = None
-    storage_key: str | None = None
-    mime_type: str | None = None
-    sha256: str | None = None
+    upload_id: UUID | None = None
 
     @field_validator("url", mode="before")
     @classmethod
@@ -63,62 +58,20 @@ class SubmissionProofCreate(BaseModel):
             raise ValueError("url must be a string")
         return value
 
-    @field_validator("storage_key", mode="before")
-    @classmethod
-    def normalize_storage_key(cls, value: object) -> object:
-        if value is None:
-            return value
-        if not isinstance(value, str):
-            raise ValueError("storage_key must be a string")
-        value = value.strip()
-        if (
-            not value
-            or len(value) > MAX_STORAGE_KEY_LENGTH
-            or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        ):
-            raise ValueError("storage_key must be a valid object-storage key")
-        return value
-
-    @field_validator("mime_type", mode="before")
-    @classmethod
-    def normalize_mime_type(cls, value: object) -> object:
-        if value is None:
-            return value
-        if not isinstance(value, str):
-            raise ValueError("mime_type must be a string")
-        value = value.strip().lower()
-        if not value or len(value) > 255 or _MIME_TYPE.fullmatch(value) is None:
-            raise ValueError("mime_type must be a valid media type")
-        return value
-
-    @field_validator("sha256", mode="before")
-    @classmethod
-    def normalize_sha256(cls, value: object) -> object:
-        if value is None:
-            return value
-        if not isinstance(value, str):
-            raise ValueError("sha256 must be a string")
-        value = value.strip().lower()
-        if _SHA256.fullmatch(value) is None:
-            raise ValueError("sha256 must contain 64 hexadecimal characters")
-        return value
-
     @model_validator(mode="after")
     def validate_proof_shape(self) -> Self:
         if self.proof_type == "url":
             if self.url is None:
                 raise ValueError("url proof requires url")
             self.url = _normalize_https_url(self.url)
-            if any(value is not None for value in (self.storage_key, self.mime_type, self.sha256)):
-                raise ValueError("url proof cannot contain file fields")
+            if self.upload_id is not None:
+                raise ValueError("url proof cannot contain upload_id")
             return self
 
-        if self.storage_key is None:
-            raise ValueError("screenshot and image proofs require storage_key")
+        if self.upload_id is None:
+            raise ValueError("screenshot and image proofs require upload_id")
         if self.url is not None:
             raise ValueError("screenshot and image proofs cannot contain url")
-        if self.mime_type is not None and not self.mime_type.startswith("image/"):
-            raise ValueError("screenshot and image proofs require an image media type")
         return self
 
 
@@ -222,8 +175,21 @@ class SubmissionProofResponse(BaseModel):
     proof_type: ProofType
     url: str | None
     storage_key: str | None
+    upload_id: UUID | None
     mime_type: str | None
     sha256: str | None
+    size_bytes: int | None
+    content_url: str | None
+
+
+class ProofUploadResponse(BaseModel):
+    upload_id: UUID
+    claim_id: UUID
+    proof_type: Literal["screenshot", "image"]
+    mime_type: str
+    sha256: str
+    size_bytes: int
+    created_at: datetime
 
 
 class SubmissionResponse(BaseModel):

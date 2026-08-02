@@ -6,10 +6,13 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     Text,
     UniqueConstraint,
     func,
@@ -117,6 +120,61 @@ class Submission(Base):
     )
 
 
+class ProofUpload(Base):
+    __tablename__ = "proof_uploads"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('screenshot', 'image')",
+            name="proof_uploads_kind_check",
+        ),
+        CheckConstraint(
+            "mime_type IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp')",
+            name="proof_uploads_mime_type_check",
+        ),
+        CheckConstraint(
+            "size_bytes BETWEEN 1 AND 5242880",
+            name="proof_uploads_size_check",
+        ),
+        CheckConstraint(
+            "octet_length(content) = size_bytes",
+            name="proof_uploads_content_size_check",
+        ),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'",
+            name="proof_uploads_sha256_check",
+        ),
+        Index("proof_uploads_claim_id_idx", "claim_id"),
+        Index("proof_uploads_freelancer_id_idx", "freelancer_id"),
+        {"comment": "Temporary hackathon image storage tied to one claimed bounty."},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    claim_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("bounty_claims.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    freelancer_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    mime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class SubmissionProof(Base):
     __tablename__ = "submission_proofs"
     __table_args__ = (
@@ -124,6 +182,10 @@ class SubmissionProof(Base):
             "submission_id",
             "kind",
             name="submission_proofs_submission_id_kind_key",
+        ),
+        UniqueConstraint(
+            "upload_id",
+            name="submission_proofs_upload_id_key",
         ),
         CheckConstraint(
             "kind IN ('url', 'screenshot', 'image')",
@@ -135,9 +197,9 @@ class SubmissionProof(Base):
         ),
         CheckConstraint(
             "(kind = 'url' AND external_url IS NOT NULL AND storage_key IS NULL "
-            "AND mime_type IS NULL AND sha256 IS NULL) OR "
+            "AND mime_type IS NULL AND sha256 IS NULL AND upload_id IS NULL) OR "
             "(kind IN ('screenshot', 'image') AND external_url IS NULL "
-            "AND storage_key IS NOT NULL)",
+            "AND storage_key IS NOT NULL AND upload_id IS NOT NULL)",
             name="submission_proofs_shape_check",
         ),
         CheckConstraint(
@@ -168,6 +230,10 @@ class SubmissionProof(Base):
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     external_url: Mapped[str | None] = mapped_column(Text)
     storage_key: Mapped[str | None] = mapped_column(Text)
+    upload_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("proof_uploads.id", ondelete="RESTRICT"),
+    )
     mime_type: Mapped[str | None] = mapped_column(Text)
     sha256: Mapped[str | None] = mapped_column(Text)
     proof_metadata: Mapped[dict[str, Any]] = mapped_column(

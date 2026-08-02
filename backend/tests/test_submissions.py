@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from app.db.session import AsyncSessionFactory
 from app.models.claim import BountyClaim, ClaimStatus
 from app.models.submission import Submission, SubmissionProof, VerificationMethod
+from app.models.task import Bounty
 from app.schemas.submission import SubmissionCreate, VerificationCommand
 from app.services.submissions import create_submission_and_commit, verify_submission_and_commit
 from tests.test_marketplace import (
@@ -59,13 +60,27 @@ def url_proof(url: str = "https://www.reddit.com/r/example/comments/abc/post/") 
     return {"proof_type": "url", "url": url}
 
 
-def screenshot_proof() -> dict[str, Any]:
-    return {
-        "proof_type": "screenshot",
-        "storage_key": f"proofs/{uuid4()}.png",
-        "mime_type": "image/png",
-        "sha256": "a" * 64,
-    }
+PNG_PROOF = b"\x89PNG\r\n\x1a\n" + b"hackathon-proof"
+
+
+async def upload_image_proof(
+    client: AsyncClient,
+    claim_id: UUID,
+    freelancer_id: UUID,
+    *,
+    proof_type: str = "screenshot",
+    content: bytes = PNG_PROOF,
+):
+    return await client.post(
+        f"/v1/claims/{claim_id}/proof-uploads",
+        data={"proof_type": proof_type},
+        files={"file": ("proof.png", content, "image/png")},
+        headers=client.auth_headers(freelancer_id),
+    )
+
+
+def screenshot_proof(upload_id: str) -> dict[str, Any]:
+    return {"proof_type": "screenshot", "upload_id": upload_id}
 
 
 async def submit(
@@ -102,24 +117,27 @@ async def verify(
 
 
 async def test_submission_requires_owner_complete_strict_proofs(client: AsyncClient) -> None:
-    _, freelancer_id, claim_id = await claimed_work(
+    creator_id, freelancer_id, claim_id = await claimed_work(
         client,
         "strict",
         proof_requirements=["url", "screenshot"],
     )
+    uploaded = await upload_image_proof(client, claim_id, freelancer_id)
+    assert uploaded.status_code == 201, uploaded.text
+    upload_id = uploaded.json()["upload_id"]
     wrong_owner_id = await create_user(client, email="wrong-submission-owner@example.com")
     wrong_owner = await submit(
         client,
         claim_id,
         wrong_owner_id,
-        [url_proof(), screenshot_proof()],
+        [url_proof(), screenshot_proof(upload_id)],
     )
     incomplete = await submit(client, claim_id, freelancer_id, [url_proof()])
     insecure_url = await submit(
         client,
         claim_id,
         freelancer_id,
-        [url_proof("http://example.com/proof"), screenshot_proof()],
+        [url_proof("http://example.com/proof"), screenshot_proof(upload_id)],
     )
     duplicate = await submit(
         client,
@@ -135,7 +153,7 @@ async def test_submission_requires_owner_complete_strict_proofs(client: AsyncCli
             url_proof(),
             {
                 "proof_type": "screenshot",
-                "storage_key": "proofs/screenshot.png",
+                "upload_id": upload_id,
                 "url": "https://example.com/unexpected",
             },
         ],
@@ -147,7 +165,12 @@ async def test_submission_requires_owner_complete_strict_proofs(client: AsyncCli
     assert duplicate.status_code == 422
     assert wrong_shape.status_code == 422
 
-    created = await submit(client, claim_id, freelancer_id, [url_proof(), screenshot_proof()])
+    created = await submit(
+        client,
+        claim_id,
+        freelancer_id,
+        [url_proof(), screenshot_proof(upload_id)],
+    )
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["claim_id"] == str(claim_id)
@@ -155,6 +178,24 @@ async def test_submission_requires_owner_complete_strict_proofs(client: AsyncCli
     assert body["verification_status"] == "pending"
     assert body["claim_status"] == "submitted"
     assert [proof["proof_type"] for proof in body["proofs"]] == ["url", "screenshot"]
+    screenshot = body["proofs"][1]
+    assert screenshot["upload_id"] == upload_id
+    assert screenshot["mime_type"] == "image/png"
+    assert screenshot["size_bytes"] == len(PNG_PROOF)
+    assert screenshot["content_url"].endswith(f"/{screenshot['id']}/content")
+
+    creator_read = await client.get(
+        f"/v1/submissions/{body['id']}",
+        headers=client.auth_headers(creator_id),
+    )
+    image_read = await client.get(
+        screenshot["content_url"],
+        headers=client.auth_headers(creator_id),
+    )
+    assert creator_read.status_code == 200
+    assert image_read.status_code == 200
+    assert image_read.content == PNG_PROOF
+    assert image_read.headers["content-type"] == "image/png"
 
     async with AsyncSessionFactory() as session:
         assert await session.scalar(select(func.count()).select_from(Submission)) == 1
@@ -189,6 +230,74 @@ async def test_expired_claim_and_second_active_submission_conflict(client: Async
     second = await submit(client, active_claim_id, active_freelancer_id, [url_proof()])
     assert first.status_code == 201
     assert second.status_code == 409
+
+
+async def test_upload_and_submission_reads_enforce_claim_and_task_ownership(
+    client: AsyncClient,
+) -> None:
+    creator_id, freelancer_id, claim_id = await claimed_work(
+        client,
+        "upload-ownership",
+        proof_requirements=["screenshot"],
+    )
+    stranger_id = await create_user(client, email="proof-upload-stranger@example.com")
+    wrong_owner = await upload_image_proof(client, claim_id, stranger_id)
+    invalid_image = await upload_image_proof(
+        client,
+        claim_id,
+        freelancer_id,
+        content=b"not-an-image",
+    )
+    unrequired_type = await upload_image_proof(
+        client,
+        claim_id,
+        freelancer_id,
+        proof_type="image",
+    )
+    assert wrong_owner.status_code == 404
+    assert invalid_image.status_code == 422
+    assert unrequired_type.status_code == 422
+
+    uploaded = await upload_image_proof(client, claim_id, freelancer_id)
+    assert uploaded.status_code == 201, uploaded.text
+    created = await submit(
+        client,
+        claim_id,
+        freelancer_id,
+        [screenshot_proof(uploaded.json()["upload_id"])],
+    )
+    assert created.status_code == 201, created.text
+    submission_id = created.json()["id"]
+
+    worker_read = await client.get(
+        f"/v1/submissions/{submission_id}",
+        headers=client.auth_headers(freelancer_id),
+    )
+    stranger_read = await client.get(
+        f"/v1/submissions/{submission_id}",
+        headers=client.auth_headers(stranger_id),
+    )
+    assert worker_read.status_code == 200
+    assert stranger_read.status_code == 404
+
+    async with AsyncSessionFactory() as session:
+        claim_row = await session.get(BountyClaim, claim_id)
+        assert claim_row is not None
+        bounty = await session.get(Bounty, claim_row.bounty_id)
+        assert bounty is not None
+        task_id = bounty.task_id
+
+    creator_list = await client.get(
+        f"/v1/tasks/{task_id}/submissions",
+        headers=client.auth_headers(creator_id),
+    )
+    worker_list = await client.get(
+        f"/v1/tasks/{task_id}/submissions",
+        headers=client.auth_headers(freelancer_id),
+    )
+    assert creator_list.status_code == 200
+    assert [item["id"] for item in creator_list.json()] == [submission_id]
+    assert worker_list.status_code == 404
 
 
 async def test_revision_increments_and_only_latest_can_be_verified(client: AsyncClient) -> None:
@@ -371,3 +480,19 @@ async def test_injected_event_sink_receives_only_safe_transactional_events(
         "verification.completed",
     ]
     assert "must-not-leak" not in str(events[1][4])
+
+
+async def test_openapi_contains_upload_and_proof_retrieval_contracts(
+    client: AsyncClient,
+) -> None:
+    response = await client.get("/openapi.json")
+    assert response.status_code == 200
+    schema = response.json()
+    paths = schema["paths"]
+    upload = paths["/v1/claims/{claim_id}/proof-uploads"]["post"]
+    assert "multipart/form-data" in upload["requestBody"]["content"]
+    assert paths["/v1/submissions/{submission_id}"]["get"]
+    assert paths["/v1/tasks/{task_id}/submissions"]["get"]
+    assert paths["/v1/submissions/{submission_id}/proofs/{proof_id}/content"]["get"]
+    proof_input = schema["components"]["schemas"]["SubmissionProofCreate"]
+    assert set(proof_input["properties"]) == {"proof_type", "url", "upload_id"}

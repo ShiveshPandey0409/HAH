@@ -111,6 +111,43 @@ class UnavailableEnrichmentProvider:
         raise EnrichmentUnavailableError("enrichment provider is not configured")
 
 
+class HackathonSelfAttestedEnrichmentProvider:
+    """URL-only admission for minimum-threshold hackathon tasks.
+
+    Influence remains zero so this mode cannot satisfy tasks that require real
+    follower or karma thresholds.
+    """
+
+    async def enrich(
+        self,
+        *,
+        platform: SocialPlatform,
+        profile_url: str,
+    ) -> EnrichmentResult:
+        public_data = {
+            "source": "hackathon-self-attested",
+            "verification": "normalized-public-profile-url-only",
+            "profile_url": profile_url,
+        }
+        if platform == SocialPlatform.REDDIT:
+            return EnrichmentResult(
+                provider_name="hackathon-self-attested",
+                is_verified=True,
+                follower_count=0,
+                following_count=0,
+                reddit_post_karma=0,
+                reddit_comment_karma=0,
+                public_data=public_data,
+            )
+        return EnrichmentResult(
+            provider_name="hackathon-self-attested",
+            is_verified=True,
+            follower_count=0,
+            following_count=0,
+            public_data=public_data,
+        )
+
+
 _DEFAULT_PROVIDER = UnavailableEnrichmentProvider()
 
 

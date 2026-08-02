@@ -12,6 +12,7 @@ from app.db.database_url import normalize_async_database_url
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 AppEnvironment = Literal["development", "test", "staging", "production"]
+PravaSettlementMode = Literal["prava_sandbox"]
 
 
 class Settings(BaseSettings):
@@ -46,12 +47,29 @@ class Settings(BaseSettings):
     http_session_ttl_seconds: int = 604800
     password_reset_ttl_seconds: int = 900
     password_reset_url: AnyHttpUrl = AnyHttpUrl("http://localhost:3000/reset-password")
+    hackathon_social_self_attestation_enabled: bool = False
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_starttls: bool = True
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     smtp_from_email: EmailStr | None = None
+    prava_payment_automation_enabled: bool = False
+    prava_payment_worker_enabled: bool = False
+    prava_base_url: AnyHttpUrl = AnyHttpUrl("https://sandbox.api.prava.space")
+    prava_secret_key: SecretStr | None = None
+    prava_payer_user_id: str = "hah-universal-hackathon-payer"
+    prava_payer_email: EmailStr | None = None
+    prava_merchant_name: str = "Hire a Human"
+    prava_merchant_url: AnyHttpUrl = AnyHttpUrl("https://hah-api-prava.onrender.com")
+    prava_merchant_country: str = "IN"
+    prava_settlement_mode: PravaSettlementMode = "prava_sandbox"
+    prava_request_timeout_seconds: float = 10.0
+    prava_payment_max_attempts: int = 4
+    prava_payment_lease_seconds: int = 45
+    prava_payment_retry_base_seconds: int = 15
+    prava_payment_retry_cap_seconds: int = 300
+    prava_payment_poll_interval_seconds: float = 1.0
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
@@ -86,6 +104,7 @@ class Settings(BaseSettings):
             raise ValueError("password reset TTL must be between 5 and 60 minutes")
         if not 1 <= self.smtp_port <= 65535:
             raise ValueError("SMTP port must be between 1 and 65535")
+        self._validate_prava_settings()
         smtp_host = (self.smtp_host or "").strip()
         smtp_username = (self.smtp_username or "").strip()
         smtp_password = (
@@ -106,11 +125,58 @@ class Settings(BaseSettings):
             if DEVELOPMENT_WEBHOOK_ENCRYPTION_KEY in configured_keys:
                 raise ValueError("the development webhook encryption key is not deployment-safe")
         self._validate_mcp_oauth_settings()
-        if self.app_env in {"staging", "production"} and self.password_reset_url.scheme != "https":
+        if (
+            self.app_env in {"staging", "production"}
+            and self.smtp_configured
+            and self.password_reset_url.scheme != "https"
+        ):
             raise ValueError("deployed password reset URLs must use HTTPS")
-        if self.app_env in {"staging", "production"} and not self.smtp_configured:
-            raise ValueError(f"{self.app_env} requires SMTP password reset delivery")
         return self
+
+    def _validate_prava_settings(self) -> None:
+        for name, url in (
+            ("PRAVA_BASE_URL", self.prava_base_url),
+            ("PRAVA_MERCHANT_URL", self.prava_merchant_url),
+        ):
+            if url.scheme != "https":
+                raise ValueError(f"{name} must use HTTPS")
+            if url.username is not None or url.password is not None:
+                raise ValueError(f"{name} cannot contain user information")
+            if url.query is not None or url.fragment is not None:
+                raise ValueError(f"{name} cannot contain a query string or fragment")
+        if self.prava_base_url.host != "sandbox.api.prava.space":
+            raise ValueError("Prava sandbox mode requires the official Prava sandbox API")
+
+        secret = (
+            self.prava_secret_key.get_secret_value() if self.prava_secret_key is not None else ""
+        )
+        if secret and not secret.startswith("sk_test_"):
+            raise ValueError("this hackathon integration accepts only a Prava sandbox secret key")
+        if not self.prava_payer_user_id.strip() or len(self.prava_payer_user_id) > 255:
+            raise ValueError("Prava payer user id must contain 1 to 255 characters")
+        if not self.prava_merchant_name.strip():
+            raise ValueError("Prava merchant name cannot be empty")
+        country = self.prava_merchant_country.strip().upper()
+        if len(country) != 2 or not country.isalpha() or not country.isascii():
+            raise ValueError("Prava merchant country must be a two-letter code")
+        self.prava_merchant_country = country
+
+        positive_values = (
+            self.prava_request_timeout_seconds,
+            self.prava_payment_max_attempts,
+            self.prava_payment_lease_seconds,
+            self.prava_payment_retry_base_seconds,
+            self.prava_payment_retry_cap_seconds,
+            self.prava_payment_poll_interval_seconds,
+        )
+        if any(value <= 0 for value in positive_values):
+            raise ValueError("Prava payment worker settings must be positive")
+        if self.prava_payment_lease_seconds <= self.prava_request_timeout_seconds * 2:
+            raise ValueError("Prava payment lease must exceed two provider request timeouts")
+        if self.prava_payment_retry_cap_seconds < self.prava_payment_retry_base_seconds:
+            raise ValueError("Prava payment retry cap must not be lower than its base")
+        if self.prava_payment_worker_enabled and not self.prava_payment_automation_enabled:
+            raise ValueError("Prava payment worker requires payment automation")
 
     def _validate_mcp_oauth_settings(self) -> None:
         if self.mcp_public_url.path != "/mcp":
@@ -153,9 +219,7 @@ class Settings(BaseSettings):
         if self.mcp_oauth_max_token_lifetime_seconds <= 0:
             raise ValueError("MCP OAuth maximum token lifetime must be positive")
 
-        if self.app_env in {"staging", "production"}:
-            if not all(configured):
-                raise ValueError(f"{self.app_env} requires OAuth token introspection credentials")
+        if self.app_env in {"staging", "production"} and all(configured):
             deployment_urls = (
                 self.mcp_public_url,
                 self.mcp_oauth_issuer_url,
@@ -171,6 +235,10 @@ class Settings(BaseSettings):
     @property
     def smtp_configured(self) -> bool:
         return bool((self.smtp_host or "").strip()) and self.smtp_from_email is not None
+
+    @property
+    def prava_configured(self) -> bool:
+        return self.prava_secret_key is not None and self.prava_payer_email is not None
 
 
 @lru_cache

@@ -5,12 +5,33 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
 from app.services.auth import AuthenticatedSession, authenticate_token
 
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+class AuthenticationErrorResponse(BaseModel):
+    detail: str
+
+
+AUTHENTICATED_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": AuthenticationErrorResponse,
+        "description": "Missing, invalid, expired, or revoked login session.",
+        "headers": {
+            "WWW-Authenticate": {
+                "description": "Bearer authentication challenge.",
+                "schema": {"type": "string", "example": "Bearer"},
+            }
+        },
+    }
+}
+
+
 _bearer = HTTPBearer(
     auto_error=False,
     scheme_name="HTTP session",

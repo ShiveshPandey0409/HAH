@@ -23,11 +23,11 @@ services:
       - key: MCP_PUBLIC_URL
         value: https://hah-api-prava.onrender.com/mcp
       - key: MCP_OAUTH_ISSUER_URL
-        sync: false
+        value: https://hah-api-prava.onrender.com
       - key: MCP_OAUTH_INTROSPECTION_URL
-        sync: false
+        value: https://hah-api-prava.onrender.com/oauth/introspect
       - key: MCP_OAUTH_INTROSPECTION_CLIENT_ID
-        sync: false
+        value: hah-mcp-resource-server
       - key: MCP_OAUTH_INTROSPECTION_CLIENT_SECRET
         sync: false
       - key: MCP_ALLOWED_HOSTS
@@ -38,10 +38,32 @@ services:
         sync: false
       - key: WEBHOOK_WORKER_ENABLED
         value: "true"
+      - key: PRAVA_PAYMENT_AUTOMATION_ENABLED
+        value: "true"
+      - key: PRAVA_PAYMENT_WORKER_ENABLED
+        value: "true"
+      - key: PRAVA_BASE_URL
+        value: https://sandbox.api.prava.space
+      - key: PRAVA_SECRET_KEY
+        sync: false
+      - key: PRAVA_PAYER_USER_ID
+        value: hah-universal-hackathon-payer
+      - key: PRAVA_PAYER_EMAIL
+        sync: false
+      - key: PRAVA_MERCHANT_NAME
+        value: Hire a Human
+      - key: PRAVA_MERCHANT_URL
+        value: https://hah-api-prava.onrender.com
+      - key: PRAVA_MERCHANT_COUNTRY
+        value: IN
+      - key: PRAVA_SETTLEMENT_MODE
+        value: prava_sandbox
       - key: HTTP_SESSION_TTL_SECONDS
         value: "604800"
       - key: PASSWORD_RESET_TTL_SECONDS
         value: "900"
+      - key: HACKATHON_SOCIAL_SELF_ATTESTATION_ENABLED
+        value: "true"
       - key: PASSWORD_RESET_URL
         sync: false
       - key: SMTP_HOST

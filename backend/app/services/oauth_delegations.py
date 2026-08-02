@@ -59,6 +59,7 @@ async def grant_oauth_delegation(
     oauth_client_id: str,
     authorization_id: str,
     scopes: set[str] | frozenset[str],
+    commit: bool = True,
 ) -> OAuthDelegation:
     """Record trusted account linking and explicit consent from the external AS flow.
 
@@ -159,8 +160,11 @@ async def grant_oauth_delegation(
                 delegation.consented_at = consented_at
                 delegation.authorization_id = authorization_id
 
-        await session.commit()
-        await session.refresh(delegation)
+        if commit:
+            await session.commit()
+            await session.refresh(delegation)
+        else:
+            await session.flush()
         return delegation
     except Exception:
         await session.rollback()
