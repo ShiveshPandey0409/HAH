@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     app_name: str = "Hire a Human API"
     app_env: AppEnvironment = "development"
     log_level: str = "INFO"
+    web_allowed_origins: list[str] = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hire_human"
     mcp_public_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000/mcp")
     mcp_oauth_issuer_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
