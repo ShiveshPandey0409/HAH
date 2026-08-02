@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { IntegrationsPage } from './pages/IntegrationsPage'
 import { LandingPage } from './pages/LandingPage'
 import { MarketplacePage } from './pages/MarketplacePage'
+import { McpSetupPage } from './pages/McpSetupPage'
 import { ProfilesPage } from './pages/ProfilesPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -34,6 +35,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/connect" element={<McpSetupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />

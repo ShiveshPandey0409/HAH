@@ -57,6 +57,22 @@ REFRESH_TOKEN_TTL = timedelta(days=30)
 MAX_OAUTH_FIELD_LENGTH = 2_048
 _PKCE_S256_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
+_SCOPE_DESCRIPTIONS = {
+    "mcp:access": ("Connect to HAH", "Use the HAH MCP server as your signed-in account."),
+    "tasks:create": ("Create campaign tasks", "Draft tasks and bounties for your review."),
+    "submissions:read": ("Read submitted proof", "View URLs and uploaded evidence for your tasks."),
+    "submissions:verify": ("Verify submissions", "Run the configured proof checks."),
+    "submissions:approve": (
+        "Approve completed work",
+        "Mark verified work as approved for its reward.",
+    ),
+    "payments:read": (
+        "Read sandbox balances",
+        "Check payment status, allowance, and wallet balances.",
+    ),
+    "payments:write": ("Manage sandbox funding", "Start or refresh task funding approvals."),
+}
+
 
 class StoredAuthorizationCode(AuthorizationCode):
     code_hash: str
@@ -765,32 +781,58 @@ class FirstPartyOAuthProvider(
         status_code: int = 200,
     ) -> HTMLResponse:
         client_name = html.escape(client.client_name or "an MCP client")
-        scope_items = "".join(f"<li>{html.escape(scope)}</li>" for scope in auth_request.scopes)
+        scope_items = "".join(
+            '<li><span class="check">&#10003;</span><div>'
+            f"<strong>{html.escape(_SCOPE_DESCRIPTIONS.get(scope, (scope, ''))[0])}</strong>"
+            f"<small>{html.escape(_SCOPE_DESCRIPTIONS.get(scope, ('', scope))[1])}</small>"
+            f"<code>{html.escape(scope)}</code></div></li>"
+            for scope in auth_request.scopes
+        )
         error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
         escaped_handle = html.escape(request_handle)
         body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Authorize MCP access</title><style>
-body{{font-family:system-ui,sans-serif;background:#eefaf8;margin:0;padding:2rem;color:#142d29}}
-main{{max-width:30rem;margin:auto;background:white;border-radius:1rem;padding:2rem;
-box-shadow:0 8px 30px #1232}}
-label{{display:block;margin-top:1rem;font-weight:600}}
-input{{box-sizing:border-box;width:100%;padding:.75rem;margin-top:.35rem}}
-button{{padding:.75rem 1rem;margin-top:1.25rem;border:0;border-radius:.5rem;cursor:pointer}}
-.allow{{background:#123f37;color:white}}
-.deny{{background:#eee;color:#222;margin-left:.5rem}} .error{{color:#a11717}} small{{color:#52645f}}
-</style></head><body><main><h1>Connect {client_name}</h1>
-<p>Sign in with your Hire a Human account and approve these permissions:</p>
+:root{{color-scheme:light}}*{{box-sizing:border-box}}
+body{{font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#eaf7f4;margin:0;
+padding:2rem 1rem;color:#142d29;line-height:1.45}}
+main{{max-width:34rem;margin:auto;background:white;border:1px solid #d5e6e1;border-radius:1rem;
+padding:2rem;box-shadow:0 18px 50px #1232}}
+.eyebrow{{color:#27655a;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}}
+h1{{font-size:1.8rem;line-height:1.15;margin:.45rem 0 .6rem}}p{{margin:.5rem 0;color:#52645f}}
+ul{{list-style:none;margin:1.4rem 0;padding:0;display:grid;gap:.65rem}}
+li{{display:grid;grid-template-columns:auto 1fr;gap:.7rem;padding:.8rem;border:1px solid #dce9e5;
+border-radius:.7rem;background:#fbfdfc}}li div{{display:grid;gap:.12rem}}
+.check{{display:grid;place-items:center;width:1.45rem;height:1.45rem;border-radius:50%;
+background:#dff5ed;color:#176c50;font-weight:800}}small{{color:#52645f}}code{{color:#6b7773;font-size:.72rem}}
+.account{{margin-top:1.5rem;padding-top:1.4rem;border-top:1px solid #dce9e5}}
+label{{display:block;margin-top:1rem;font-weight:700;font-size:.9rem}}
+input{{width:100%;padding:.78rem;margin-top:.38rem;border:1px solid #aebfba;border-radius:.55rem;
+font:inherit}}input:focus{{outline:3px solid #a9dfd1;border-color:#27655a}}
+.actions{{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin-top:1.25rem}}
+button{{padding:.78rem 1rem;border:0;border-radius:.55rem;cursor:pointer;
+font:inherit;font-weight:750}}
+.allow{{background:#123f37;color:white}}.deny{{background:#edf1f0;color:#263b36}}
+.error{{padding:.7rem;border-radius:.5rem;background:#fff0f0;color:#a11717}}
+.security{{display:flex;gap:.45rem;align-items:flex-start;margin-top:1rem;font-size:.8rem}}
+</style></head><body><main><span class="eyebrow">HAH secure connection</span>
+<h1>Connect {client_name}</h1>
+<p>Review what this MCP client is requesting. You stay in control and can deny access.</p>
 <ul>{scope_items}</ul>{error_html}
 <form method="post" action="/oauth/consent">
 <input type="hidden" name="request" value="{escaped_handle}">
+<div class="account"><strong>Sign in to approve</strong>
+<p>Use the same creator account as your HAH dashboard.</p></div>
 <label>Email<input name="email" type="email" autocomplete="username" required
 maxlength="320"></label>
 <label>Password<input name="password" type="password" autocomplete="current-password" required
 maxlength="128"></label>
-<button class="allow" name="action" value="approve" type="submit">Allow MCP access</button>
-<button class="deny" name="action" value="deny" type="submit" formnovalidate>Deny</button></form>
-<p><small>Your password is verified by HAH and is never shared with the MCP client.</small></p>
+<div class="actions"><button class="allow" name="action" value="approve" type="submit">
+Allow MCP access</button>
+<button class="deny" name="action" value="deny" type="submit" formnovalidate>
+Deny</button></div></form>
+<p class="security"><span>&#128274;</span><small>Your password is verified only by HAH
+and is never shared with the MCP client.</small></p>
 </main></body></html>"""
         content_security_policy = (
             "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "

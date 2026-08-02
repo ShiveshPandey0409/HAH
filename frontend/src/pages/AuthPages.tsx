@@ -31,15 +31,21 @@ function appHome(user: { can_create_tasks: boolean }) {
   return user.can_create_tasks ? '/app' : '/app/marketplace'
 }
 
+function safeNext(params: URLSearchParams, fallback: string) {
+  const next = params.get('next')
+  return next?.startsWith('/') && !next.startsWith('//') ? next : fallback
+}
+
 export function LoginPage() {
   const { user, setSession } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  if (user) return <Navigate to={appHome(user)} replace />
+  if (user) return <Navigate to={safeNext(params, appHome(user))} replace />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -48,7 +54,7 @@ export function LoginPage() {
     try {
       const response = await api.login(email, password)
       setSession(response.access_token, response.user)
-      navigate(appHome(response.user))
+      navigate(safeNext(params, appHome(response.user)))
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Could not log in')
     } finally {
@@ -67,7 +73,7 @@ export function LoginPage() {
           <div className="form-row form-row--between"><Link href="/forgot-password">Forgot password?</Link></div>
           <Button type="submit" variant="primary" size="lg" loading={loading} icon={<ArrowRight />}>Log in</Button>
         </form>
-        <div className="auth-switch"><Text>New to HAH? <Link href="/signup">Create an account</Link></Text></div>
+        <div className="auth-switch"><Text>New to HAH? <Link href={`/signup${params.get('next') ? `?next=${encodeURIComponent(params.get('next')!)}` : ''}`}>Create an account</Link></Text></div>
       </Surface>
     </AuthLayout>
   )
@@ -85,7 +91,7 @@ export function SignupPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  if (user) return <Navigate to={appHome(user)} replace />
+  if (user) return <Navigate to={safeNext(params, appHome(user))} replace />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -101,7 +107,7 @@ export function SignupPage() {
         bio: bio || null,
       })
       setSession(response.access_token, response.user)
-      navigate(role === 'human' ? '/app/profiles' : '/app/tasks/new')
+      navigate(safeNext(params, role === 'human' ? '/app/profiles' : '/app/tasks/new'))
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Could not create your account')
     } finally {
@@ -128,7 +134,7 @@ export function SignupPage() {
           <Field label="Short bio" required={false}><InputArea value={bio} onChange={(e) => setBio(e.target.value)} placeholder={role === 'brand' ? 'What are you building?' : 'What topics do you know well?'} rows={3} /></Field>
           <Button type="submit" variant="primary" size="lg" loading={loading} icon={<ArrowRight />}>Create account</Button>
         </form>
-        <div className="auth-switch"><Text>Already have an account? <Link href="/login">Log in</Link></Text></div>
+        <div className="auth-switch"><Text>Already have an account? <Link href={`/login${params.get('next') ? `?next=${encodeURIComponent(params.get('next')!)}` : ''}`}>Log in</Link></Text></div>
       </Surface>
     </AuthLayout>
   )

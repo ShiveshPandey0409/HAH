@@ -1,5 +1,5 @@
 import { Badge, Button, Checkbox, ClipboardText, Field, Input, Link, Surface } from '@cloudflare/kumo'
-import { ArrowSquareOut, ArrowsClockwise, Broadcast, ShieldCheck } from '@phosphor-icons/react'
+import { ArrowRight, ArrowSquareOut, ArrowsClockwise, Broadcast, PlugsConnected, ShieldCheck } from '@phosphor-icons/react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { Notice, PageHeader } from '../components/UI'
@@ -39,6 +39,9 @@ export function IntegrationsPage() {
   return (
     <div className="page integrations-page">
       <PageHeader title="Integrations" description="Send signed task events to your backend or agent." />
+      <Surface as="section" className="mcp-integration-callout rounded-lg border border-kumo-hairline p-6">
+        <span><PlugsConnected size={24} /></span><div><h2>Connect HAH to Codex</h2><p>Add the MCP server, approve OAuth with this HAH account, and test a read-only tool in a few guided steps.</p></div><Link href="/connect">Open connection guide <ArrowRight /></Link>
+      </Surface>
       <div className="integration-layout">
         <Surface render={<form className="panel integration-form" onSubmit={save} />} className="rounded-lg border border-kumo-hairline p-6">
           <div className="integration-form__heading"><span><Broadcast size={22} /></span><div><h2>Webhook endpoint</h2><p>One HTTPS destination per creator account.</p></div>{endpoint && <Badge variant="success">{titleCase(endpoint.status)}</Badge>}</div>

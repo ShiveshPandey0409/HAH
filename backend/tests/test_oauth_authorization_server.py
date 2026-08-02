@@ -100,6 +100,10 @@ async def test_metadata_registration_and_full_pkce_token_lifecycle(
     consent = await client.get("/oauth/consent", params={"request": request_handle})
     assert consent.status_code == 200
     assert "OAuth integration test" in consent.text
+    assert "Create campaign tasks" in consent.text
+    assert "Read sandbox balances" in consent.text
+    assert "Manage sandbox funding" in consent.text
+    assert "Use the same creator account as your HAH dashboard" in consent.text
     assert client_secret not in consent.text
 
     wrong_password = await client.post(
