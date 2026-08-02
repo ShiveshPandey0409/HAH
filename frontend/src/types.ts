@@ -115,18 +115,22 @@ export interface Claim {
   updated_at: string
 }
 
-export interface LocalClaim extends Claim {
-  bounty?: EligibleBounty
-  submission?: Submission
+export interface SubmissionProofInput {
+  proof_type: ProofType
+  url?: string | null
+  upload_id?: string | null
 }
 
 export interface SubmissionProof {
-  id?: string
+  id: string
   proof_type: ProofType
-  url?: string | null
+  url: string | null
   storage_key?: string | null
+  upload_id: string | null
   mime_type?: string | null
   sha256?: string | null
+  size_bytes: number | null
+  content_url: string | null
 }
 
 export interface Submission {
@@ -143,6 +147,25 @@ export interface Submission {
   submitted_at: string
   verified_at: string | null
   updated_at: string
+}
+
+export interface ProofUpload {
+  upload_id: string
+  claim_id: string
+  proof_type: 'screenshot' | 'image'
+  mime_type: string
+  sha256: string
+  size_bytes: number
+  created_at: string
+}
+
+export interface WorkClaim extends Claim {
+  task_id: string
+  task_title: string
+  bounty_title: string
+  instructions: string
+  proof_requirements: ProofType[]
+  submission: Submission | null
 }
 
 export interface WebhookEndpoint {

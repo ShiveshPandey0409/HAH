@@ -4,14 +4,15 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { PageHeader, Stat, StatusBadge } from '../components/UI'
 import { api } from '../lib/api'
-import { localClaims, money, relativeDate, titleCase } from '../lib/utils'
-import type { EligibleBounty, SocialProfile, Task } from '../types'
+import { money, relativeDate, titleCase } from '../lib/utils'
+import type { EligibleBounty, SocialProfile, Task, WorkClaim } from '../types'
 
 export function DashboardPage() {
   const { user } = useAuth()
   const [tasks, setTasks] = useState<Task[]>([])
   const [bounties, setBounties] = useState<EligibleBounty[]>([])
   const [profiles, setProfiles] = useState<SocialProfile[]>([])
+  const [claims, setClaims] = useState<WorkClaim[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -21,13 +22,13 @@ export function DashboardPage() {
     if (user.can_work_tasks) {
       calls.push(api.listProfiles(user.id).then(setProfiles))
       calls.push(api.listBounties(user.id).then(setBounties).catch(() => setBounties([])))
+      calls.push(api.listClaims(user.id).then(setClaims))
     }
     Promise.all(calls).finally(() => setLoading(false))
   }, [user])
 
   if (!user) return null
   const creator = user.can_create_tasks
-  const claims = user.can_work_tasks ? localClaims.list(user.id) : []
   const allocated = tasks.reduce((sum, task) => sum + task.allocated_budget_minor, 0)
   const openTasks = tasks.filter((task) => task.status === 'open')
 

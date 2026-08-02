@@ -28,6 +28,7 @@ from app.schemas.submission import (
     SubmissionProofResponse,
     SubmissionResponse,
     VerificationCommand,
+    WorkClaimResponse,
 )
 
 SubmissionEventSink = Callable[
@@ -445,6 +446,57 @@ async def list_task_submissions(
         ).all()
     )
     return [await _submission_response(session, submission, claim) for submission, claim in rows]
+
+
+async def list_freelancer_claims(
+    session: AsyncSession,
+    freelancer_id: UUID,
+) -> list[WorkClaimResponse]:
+    rows = list(
+        (
+            await session.execute(
+                select(BountyClaim, Bounty, Task)
+                .join(Bounty, Bounty.id == BountyClaim.bounty_id)
+                .join(Task, Task.id == Bounty.task_id)
+                .where(BountyClaim.freelancer_id == freelancer_id)
+                .order_by(BountyClaim.claimed_at.desc(), BountyClaim.id.desc())
+            )
+        ).all()
+    )
+    claims: list[WorkClaimResponse] = []
+    for claim, bounty, task in rows:
+        submission = await session.scalar(
+            select(Submission)
+            .where(Submission.claim_id == claim.id)
+            .order_by(Submission.revision.desc(), Submission.id.desc())
+            .limit(1)
+        )
+        claims.append(
+            WorkClaimResponse(
+                id=claim.id,
+                bounty_id=claim.bounty_id,
+                freelancer_id=claim.freelancer_id,
+                social_account_id=claim.social_account_id,
+                platform=claim.platform,
+                status=claim.status,
+                reward_minor=claim.reward_minor,
+                currency=claim.currency,
+                claimed_at=claim.claimed_at,
+                claim_expires_at=claim.claim_expires_at,
+                updated_at=claim.updated_at,
+                task_id=task.id,
+                task_title=task.title,
+                bounty_title=bounty.title,
+                instructions=bounty.instructions,
+                proof_requirements=bounty.proof_requirements,
+                submission=(
+                    await _submission_response(session, submission, claim)
+                    if submission is not None
+                    else None
+                ),
+            )
+        )
+    return claims
 
 
 async def get_submission_proof_content(

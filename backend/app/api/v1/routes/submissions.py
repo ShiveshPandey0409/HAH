@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
+from app.api.dependencies.auth import (
+    AUTHENTICATED_RESPONSES,
+    AuthenticatedSessionDependency,
+    require_self,
+)
 from app.db.session import get_db_session
 from app.models.submission import VerificationMethod
 from app.schemas.submission import (
@@ -18,6 +22,7 @@ from app.schemas.submission import (
     SubmissionResponse,
     SubmissionVerificationRequest,
     VerificationCommand,
+    WorkClaimResponse,
 )
 from app.services.submissions import (
     SubmissionConflictError,
@@ -27,6 +32,7 @@ from app.services.submissions import (
     create_submission_and_commit,
     get_submission,
     get_submission_proof_content,
+    list_freelancer_claims,
     list_task_submissions,
     verify_submission_and_commit,
 )
@@ -136,6 +142,19 @@ async def list_task_submissions_endpoint(
         )
     except SubmissionNotFoundError as error:
         raise _submission_http_error(error) from error
+
+
+@router.get(
+    "/freelancers/{freelancer_id}/claims",
+    response_model=list[WorkClaimResponse],
+)
+async def list_freelancer_claims_endpoint(
+    freelancer_id: UUID,
+    session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
+) -> list[WorkClaimResponse]:
+    require_self(authenticated, freelancer_id)
+    return await list_freelancer_claims(session, freelancer_id)
 
 
 @router.get("/submissions/{submission_id}/proofs/{proof_id}/content")

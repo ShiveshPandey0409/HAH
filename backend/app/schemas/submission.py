@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.redaction import redact_sensitive_data
 from app.models.claim import ClaimStatus
 from app.models.submission import VerificationMethod, VerificationStatus
+from app.models.task import SocialPlatform
 from app.schemas.task import ProofType
 
 MAX_PROOF_URL_LENGTH = 2_048
@@ -206,3 +207,23 @@ class SubmissionResponse(BaseModel):
     submitted_at: datetime
     verified_at: datetime | None
     updated_at: datetime
+
+
+class WorkClaimResponse(BaseModel):
+    id: UUID
+    bounty_id: UUID
+    freelancer_id: UUID
+    social_account_id: UUID
+    platform: SocialPlatform
+    status: ClaimStatus
+    reward_minor: int
+    currency: str
+    claimed_at: datetime
+    claim_expires_at: datetime | None
+    updated_at: datetime
+    task_id: UUID
+    task_title: str
+    bounty_title: str
+    instructions: str
+    proof_requirements: list[ProofType]
+    submission: SubmissionResponse | None

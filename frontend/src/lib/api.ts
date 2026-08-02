@@ -2,14 +2,16 @@ import type {
   AuthResponse,
   Claim,
   EligibleBounty,
+  ProofUpload,
   SocialProfile,
   Submission,
-  SubmissionProof,
+  SubmissionProofInput,
   Task,
   TaskInput,
   User,
   WebhookEndpoint,
   WebhookEvent,
+  WorkClaim,
 } from '../types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -40,7 +42,9 @@ function detailMessage(value: unknown): string {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY)
   const headers = new Headers(options.headers)
-  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   let response: Response
@@ -63,6 +67,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const token = localStorage.getItem(TOKEN_KEY)
+  const headers = new Headers()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(`${API_BASE}${path}`, { headers })
+  if (!response.ok) throw new ApiError(response.statusText || 'Could not load proof', response.status)
+  return response.blob()
 }
 
 export const tokenStore = {
@@ -115,11 +128,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ social_account_id: socialAccountId }),
     }),
-  submitProof: (claimId: string, proofs: SubmissionProof[]) =>
+  listClaims: (userId: string) => request<WorkClaim[]>(`/v1/freelancers/${userId}/claims`),
+  uploadProof: (claimId: string, proofType: 'screenshot' | 'image', file: File) => {
+    const body = new FormData()
+    body.set('proof_type', proofType)
+    body.set('file', file)
+    return request<ProofUpload>(`/v1/claims/${claimId}/proof-uploads`, { method: 'POST', body })
+  },
+  submitProof: (claimId: string, proofs: SubmissionProofInput[]) =>
     request<Submission>(`/v1/claims/${claimId}/submissions`, {
       method: 'POST',
       body: JSON.stringify({ proofs }),
     }),
+  getSubmission: (submissionId: string) => request<Submission>(`/v1/submissions/${submissionId}`),
+  listTaskSubmissions: (taskId: string) => request<Submission[]>(`/v1/tasks/${taskId}/submissions`),
+  getProofContent: (contentUrl: string) => requestBlob(contentUrl),
   verifySubmission: (
     submissionId: string,
     result: 'passed' | 'failed' | 'review_required',
