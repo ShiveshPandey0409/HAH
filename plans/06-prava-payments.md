@@ -9,6 +9,12 @@ the exact bounty reward.
 The backend stores only Prava/provider references and redacted response data. It
 must never receive or persist card number, CVV, or expiry.
 
+OAuth user delegation on `/mcp` is a prerequisite, not sufficient authorization to
+move money. Before any payment-capable agent operation is enabled, require a
+sender-constrained token (DPoP or mTLS), fresh step-up authentication, and
+transaction-bound consent containing the exact payee, amount, currency, task, and
+expiry. A broad OAuth scope must never authorize an arbitrary payout.
+
 ## Required Prava contract check
 
 Before implementing the adapter, confirm from the current Prava sandbox docs/SDK:

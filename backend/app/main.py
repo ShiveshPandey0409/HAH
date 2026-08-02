@@ -11,6 +11,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import engine
 from app.mcp.server import create_mcp_server
+from app.workers.webhooks import runtime_from_settings
 
 settings = get_settings()
 
@@ -42,6 +43,12 @@ def create_app() -> FastAPI:
     mcp_server, mcp_http_app = create_mcp_server()
     application = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
     application.state.mcp_server = mcp_server
+    try:
+        application.state.webhook_runtime = runtime_from_settings()
+    except RuntimeError:
+        if settings.app_env in {"staging", "production"}:
+            raise
+        application.state.webhook_runtime = None
     application.add_exception_handler(RequestValidationError, safe_request_validation_error)
     application.include_router(api_router)
     application.mount("/", mcp_http_app)

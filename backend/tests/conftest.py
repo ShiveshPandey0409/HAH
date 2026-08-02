@@ -31,6 +31,10 @@ TEST_DATABASE_URL = require_safe_test_database_url(
     )
 )
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ.setdefault(
+    "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+    '["MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="]',
+)
 
 from app.main import app  # noqa: E402
 

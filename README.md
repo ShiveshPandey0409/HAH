@@ -22,10 +22,10 @@ Landing
 ## Implemented backend
 
 The backend supports users, atomic task-and-bounty creation, public social-profile
-enrichment, the eligible freelancer feed, and atomic bounty claims. Tasks can be
-created through HTTP or the authenticated MCP `create_task` tool; both surfaces use
-the same validation and transaction logic. Submissions, verification, and webhooks
-are the next milestone. Prava payments remain deferred.
+enrichment, the eligible freelancer feed and claims, proof submissions, manual/MCP
+verification, and signed retryable webhooks. Tasks and verification can be performed
+through authenticated MCP tools that reuse the HTTP business services. Prava payment
+execution remains deferred.
 
 ```bash
 cd backend
@@ -38,6 +38,11 @@ uv run alembic stamp 20260801_0001
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
+
+Run `uv run python -m app.workers.webhooks` in a second terminal to deliver queued
+events. The configured keys encrypt both webhook signing secrets and capability URLs.
+Replace the development-only example before any deployment; staging and production
+modes reject that public key.
 
 Create a user:
 
@@ -68,14 +73,45 @@ Marketplace endpoints:
 - `POST /v1/bounties/{bounty_id}/claims` atomically reserves one remaining slot and
   stores a fixed reward/currency snapshot.
 
+Completion endpoints:
+
+- `POST /v1/claims/{claim_id}/submissions` records one strict proof set and advances
+  the claim to submitted.
+- `POST /v1/submissions/{submission_id}/verification` records a manual verification
+  result through the shared state machine.
+- `PUT /v1/users/{creator_id}/webhook` creates or rotates the signed webhook endpoint;
+  `GET` returns configuration without its secret.
+
 No enrichment vendor is selected in this repository. The default adapter returns
 `503` while preserving the submitted URL as unvalidated; deployments must supply a
 vendor adapter. Provider-neutral fake adapters cover the complete flow in tests.
 
-The MCP Streamable HTTP endpoint is `/mcp`. It requires a bearer token issued by the
-API-client management service with the `tasks:create` scope. Only a SHA-256 hash of
-the high-entropy secret is stored. Every successful or failed tool execution has a
-redacted, idempotent `mcp_requests` audit record.
+The MCP Streamable HTTP endpoint is `/mcp` and is an OAuth 2.1 protected resource.
+An external OAuth/OIDC authorization server owns user login, consent, authorization
+code + PKCE, and token issuance. HAH validates each bearer access token by
+introspection and maps its exact issuer, subject, and agent `client_id` to a locally
+approved user delegation. API keys are not accepted by `/mcp`.
+
+HAH's RFC 7662 introspection profile additionally requires `authorization_id`: an
+opaque, non-secret authorization-grant handle. The authorization server must return
+the same handle for every access token minted from one authorization/refresh grant,
+must issue a new never-reused handle after every new consent, and must revoke the old
+grant. The same value is recorded by the trusted local post-consent provisioning
+flow. It must never be an authorization code, access token, refresh token, ID token,
+or other credential. A token without this extension fails closed; immutable grant
+history prevents an old consent from being revived by reusing its handle.
+
+Every token needs `mcp:access`; `create_task` additionally needs `tasks:create`, and
+`verify_submission` needs `submissions:verify`. A `passed` verification also needs
+the narrower `submissions:approve` consent because it can become money-moving in a
+later milestone. Every successful or failed tool execution has a bounded, redacted,
+delegation-scoped idempotency record. Access tokens are never persisted or sent to
+Prava. Payment tools and Prava execution remain disabled.
+
+Webhook delivery currently emits `submission.created`, `verification.completed`,
+and `mcp_request.completed`. Canonical payload bytes are signed and delivered by a
+concurrency-safe worker with DNS/SSRF checks and bounded retry/backoff. Payment
+events and all Prava execution remain out of scope.
 
 Run the PostgreSQL integration tests against the isolated test database:
 

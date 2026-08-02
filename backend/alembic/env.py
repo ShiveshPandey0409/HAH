@@ -17,9 +17,16 @@ from app.models import (  # noqa: F401
     Bounty,
     BountyClaim,
     MCPRequest,
+    OAuthAuthorizationGrant,
+    OAuthDelegation,
+    OAuthIdentity,
     SocialAccount,
+    Submission,
+    SubmissionProof,
     Task,
     User,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 
 config = context.config
