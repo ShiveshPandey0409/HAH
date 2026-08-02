@@ -77,7 +77,7 @@ export function AppShell() {
             {user.can_create_tasks && user.can_work_tasks ? 'Creator + Human' : user.can_create_tasks ? 'Creator workspace' : 'Human workspace'}
           </Text>
           <DropdownMenu>
-            <DropdownMenu.Trigger render={<Button variant="secondary" icon={<User />} /> }>
+            <DropdownMenu.Trigger render={<Button className="topbar__account-trigger" variant="secondary" icon={<User />} /> }>
               {user.display_name}
               <CaretDown />
             </DropdownMenu.Trigger>
