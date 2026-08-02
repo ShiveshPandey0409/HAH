@@ -1,5 +1,6 @@
 import { ClipboardText, Link, LinkButton } from '@cloudflare/kumo'
 import { CheckCircle, CurrencyDollar, Sparkle } from '@phosphor-icons/react'
+import { Logo } from '../components/Logo'
 import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
@@ -14,8 +15,7 @@ export function LandingPage() {
 
       <header className="landing-nav">
         <Link href="/" variant="plain" className="landing-brand" aria-label="Hire a Human home">
-          <img className="landing-brand__mark" src="/logo.png" alt="" width={38} height={38} />
-          <span>Hire a Human</span>
+          <Logo size={38} />
         </Link>
 
         <LinkButton href="/login" variant="primary" className="landing-nav__sign-in">
