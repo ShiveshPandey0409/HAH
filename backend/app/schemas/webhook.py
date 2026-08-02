@@ -94,6 +94,13 @@ class WebhookEndpointPutResponse(WebhookEndpointResponse):
         return value.get_secret_value()
 
 
+class MCPWebhookStatusResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    configured: bool
+    webhook: WebhookEndpointResponse | None = None
+
+
 class SubmissionCreatedData(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
