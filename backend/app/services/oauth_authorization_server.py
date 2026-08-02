@@ -8,7 +8,7 @@ import html
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote, urlencode, urlsplit
 from uuid import UUID, uuid4
 
 from cryptography.fernet import InvalidToken, MultiFernet
@@ -107,6 +107,18 @@ def _new_credential(prefix: str) -> str:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _csp_source_for_redirect_uri(redirect_uri: str) -> str:
+    """Return the validated redirect origin as a CSP host source."""
+    parsed = urlsplit(redirect_uri)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        raise ValueError("OAuth redirect URI must use HTTP or HTTPS")
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{host}{port}"
 
 
 class FirstPartyOAuthProvider(
@@ -489,6 +501,7 @@ class FirstPartyOAuthProvider(
                     error="access_denied",
                     error_description="The user denied the OAuth request",
                     state=auth_request.state,
+                    iss=self.issuer,
                 ),
                 status_code=302,
                 headers={"Cache-Control": "no-store"},
@@ -781,6 +794,7 @@ class FirstPartyOAuthProvider(
         status_code: int = 200,
     ) -> HTMLResponse:
         client_name = html.escape(client.client_name or "an MCP client")
+        script_nonce = secrets.token_urlsafe(18)
         scope_items = "".join(
             '<li><span class="check">&#10003;</span><div>'
             f"<strong>{html.escape(_SCOPE_DESCRIPTIONS.get(scope, (scope, ''))[0])}</strong>"
@@ -790,6 +804,7 @@ class FirstPartyOAuthProvider(
         )
         error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
         escaped_handle = html.escape(request_handle)
+        redirect_source = _csp_source_for_redirect_uri(auth_request.redirect_uri)
         body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Authorize MCP access</title><style>
@@ -812,14 +827,18 @@ font:inherit}}input:focus{{outline:3px solid #a9dfd1;border-color:#27655a}}
 .actions{{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin-top:1.25rem}}
 button{{padding:.78rem 1rem;border:0;border-radius:.55rem;cursor:pointer;
 font:inherit;font-weight:750}}
+button:disabled{{cursor:wait;opacity:.72}}
 .allow{{background:#123f37;color:white}}.deny{{background:#edf1f0;color:#263b36}}
 .error{{padding:.7rem;border-radius:.5rem;background:#fff0f0;color:#a11717}}
+.device{{padding:.75rem;border-radius:.6rem;background:#f0f8f6;color:#294d45;font-size:.88rem}}
 .security{{display:flex;gap:.45rem;align-items:flex-start;margin-top:1rem;font-size:.8rem}}
 </style></head><body><main><span class="eyebrow">HAH secure connection</span>
 <h1>Connect {client_name}</h1>
 <p>Review what this MCP client is requesting. You stay in control and can deny access.</p>
+<p class="device"><strong>Connecting another computer?</strong> Use the same HAH account,
+but finish this page on the computer where your AI app started the connection.</p>
 <ul>{scope_items}</ul>{error_html}
-<form method="post" action="/oauth/consent">
+<form id="oauth-consent-form" method="post" action="/oauth/consent">
 <input type="hidden" name="request" value="{escaped_handle}">
 <div class="account"><strong>Sign in to approve</strong>
 <p>Use the same creator account as your HAH dashboard.</p></div>
@@ -828,14 +847,25 @@ maxlength="320"></label>
 <label>Password<input name="password" type="password" autocomplete="current-password" required
 maxlength="128"></label>
 <div class="actions"><button class="allow" name="action" value="approve" type="submit">
-Allow MCP access</button>
+Allow MCP access once</button>
 <button class="deny" name="action" value="deny" type="submit" formnovalidate>
 Deny</button></div></form>
 <p class="security"><span>&#128274;</span><small>Your password is verified only by HAH
 and is never shared with the MCP client.</small></p>
+<script nonce="{script_nonce}">
+const form = document.getElementById('oauth-consent-form');
+form.addEventListener('submit', (event) => {{
+  const submitter = event.submitter;
+  window.setTimeout(() => {{
+    for (const button of form.querySelectorAll('button')) button.disabled = true;
+    if (submitter && submitter.value === 'approve') submitter.textContent = 'Connecting…';
+  }}, 0);
+}});
+</script>
 </main></body></html>"""
         content_security_policy = (
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+            f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{script_nonce}'; "
+            f"form-action 'self' {redirect_source}; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
         return HTMLResponse(
@@ -850,10 +880,33 @@ and is never shared with the MCP client.</small></p>
         )
 
     def _invalid_consent_response(self) -> HTMLResponse:
+        body = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Start a new HAH connection</title><style>
+:root{color-scheme:light}*{box-sizing:border-box}body{font-family:Inter,ui-sans-serif,system-ui,
+sans-serif;background:#eaf7f4;margin:0;padding:2rem 1rem;color:#142d29;line-height:1.5}
+main{max-width:32rem;margin:8vh auto;background:white;border:1px solid #d5e6e1;border-radius:1rem;
+padding:2rem;box-shadow:0 18px 50px #1232}.eyebrow{color:#27655a;font-size:.76rem;font-weight:800;
+letter-spacing:.08em;text-transform:uppercase}h1{font-size:1.8rem;line-height:1.15;margin:.5rem 0}
+p{color:#52645f}ol{padding-left:1.25rem}li{margin:.6rem 0}strong{color:#142d29}
+</style></head><body><main><span class="eyebrow">HAH secure connection</span>
+<h1>Start a new connection</h1>
+<p>This one-time authorization page has expired or was already submitted.</p>
+<ol><li>Return to the AI app <strong>on this computer</strong>.</li>
+<li>Choose <strong>Authenticate</strong> for HAH again.</li>
+<li>Keep the app open and use only the new browser page.</li></ol>
+<p>You can use the same HAH account on every computer. Each computer must start its own secure
+connection.</p></main></body></html>"""
         return HTMLResponse(
-            "<!doctype html><title>OAuth request unavailable</title>"
-            "<h1>OAuth request unavailable</h1>"
-            "<p>This authorization request is invalid, expired, or already used.</p>",
+            body,
             status_code=400,
-            headers={"Cache-Control": "no-store"},
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": (
+                    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+                    "frame-ancestors 'none'"
+                ),
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+            },
         )

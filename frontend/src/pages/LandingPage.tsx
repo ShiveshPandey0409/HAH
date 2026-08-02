@@ -5,7 +5,7 @@ import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
-const mcpInstallCommand = `npx add-mcp ${mcpUrl}`
+const mcpInstallCommand = `npx add-mcp ${mcpUrl} -g -n hah`
 
 export function LandingPage() {
   return (
@@ -15,7 +15,7 @@ export function LandingPage() {
 
       <header className="landing-nav">
         <Link href="/" variant="plain" className="landing-brand" aria-label="Hire a Human home">
-          {/* <Logo size={38} /> */}
+          <Logo size={38} />
         </Link>
 
         <LinkButton href="/login" variant="primary" className="landing-nav__sign-in">

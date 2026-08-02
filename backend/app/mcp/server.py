@@ -40,8 +40,8 @@ from app.schemas.task import (
 )
 from app.schemas.webhook import (
     CURRENT_WEBHOOK_EVENT_TYPES,
+    MCPWebhookStatusResponse,
     WebhookEndpointPutResponse,
-    WebhookEndpointResponse,
     WebhookEventType,
     WebhookPutRequest,
 )
@@ -85,7 +85,11 @@ from app.services.tasks import (
 from app.services.tasks import (
     open_task,
 )
-from app.services.webhooks import configure_webhook_endpoint, get_webhook_endpoint
+from app.services.webhooks import (
+    WebhookEndpointNotFoundError,
+    configure_webhook_endpoint,
+    get_webhook_endpoint,
+)
 from app.workers.webhooks import runtime_from_settings as webhook_runtime_from_settings
 
 MCP_SUPPORTED_SCOPES = (
@@ -446,19 +450,23 @@ async def configure_webhook(
         )
 
 
-async def get_webhook() -> WebhookEndpointResponse:
+async def get_webhook() -> MCPWebhookStatusResponse:
     """Read the authenticated creator's webhook URL and subscribed events."""
 
     principal = get_current_oauth_principal()
     require_api_scope(principal, SUBMISSIONS_READ_SCOPE)
     runtime = webhook_runtime_from_settings()
     async with AsyncSessionFactory() as session:
-        return await get_webhook_endpoint(
-            session,
-            creator_id=principal.user_id,
-            cipher=runtime.cipher,
-            policy=runtime.policy,
-        )
+        try:
+            webhook = await get_webhook_endpoint(
+                session,
+                creator_id=principal.user_id,
+                cipher=runtime.cipher,
+                policy=runtime.policy,
+            )
+        except WebhookEndpointNotFoundError:
+            return MCPWebhookStatusResponse(configured=False)
+        return MCPWebhookStatusResponse(configured=True, webhook=webhook)
 
 
 class OAuthChallengeScopeMiddleware:

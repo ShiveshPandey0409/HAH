@@ -223,12 +223,18 @@ async def test_mcp_can_configure_read_and_deliver_all_webhook_events(
 
     with use_oauth_principal(principal):
         async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
+            unconfigured = await mcp_client.call_tool("get_webhook", {})
             configured = await mcp_client.call_tool(
                 "configure_webhook",
                 {"url": CAPABILITY_URL},
             )
             read = await mcp_client.call_tool("get_webhook", {})
 
+    assert not unconfigured.is_error
+    assert unconfigured.structured_content == {
+        "configured": False,
+        "webhook": None,
+    }
     assert not configured.is_error
     assert configured.structured_content["url"] == CAPABILITY_URL
     assert configured.structured_content["signing_secret"].startswith("whsec_")
@@ -239,8 +245,9 @@ async def test_mcp_can_configure_read_and_deliver_all_webhook_events(
         "submission.created",
         "verification.completed",
     ]
-    assert "signing_secret" not in read.structured_content
-    assert read.structured_content["url"] == CAPABILITY_URL
+    assert read.structured_content["configured"] is True
+    assert "signing_secret" not in read.structured_content["webhook"]
+    assert read.structured_content["webhook"]["url"] == CAPABILITY_URL
 
     submitted = await submit(client, claim_id, freelancer_id, [url_proof()])
     assert submitted.status_code == 201, submitted.text
