@@ -6,11 +6,14 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Text,
     UniqueConstraint,
     func,
@@ -153,7 +156,8 @@ class OAuthDelegation(Base):
         CheckConstraint(
             "approved_scopes <@ ARRAY["
             "'mcp:access', 'tasks:create', 'submissions:read', "
-            "'submissions:verify', 'submissions:approve'"
+            "'submissions:verify', 'submissions:approve', "
+            "'payments:read', 'payments:write'"
             "]::text[] AND approved_scopes @> ARRAY['mcp:access']::text[]",
             name="oauth_delegations_supported_scopes_check",
         ),
@@ -244,6 +248,173 @@ class OAuthAuthorizationGrant(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+class OAuthRegisteredClient(Base):
+    __tablename__ = "oauth_registered_clients"
+    __table_args__ = (
+        CheckConstraint(
+            "client_id = btrim(client_id) AND client_id <> ''",
+            name="oauth_registered_clients_client_id_check",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(metadata) = 'object'",
+            name="oauth_registered_clients_metadata_check",
+        ),
+        CheckConstraint(
+            "(client_secret_hash IS NULL) = (client_secret_ciphertext IS NULL)",
+            name="oauth_registered_clients_secret_pair_check",
+        ),
+        {"comment": "Dynamically registered MCP OAuth clients; secrets are encrypted."},
+    )
+
+    client_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    client_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False)
+    client_secret_hash: Mapped[str | None] = mapped_column(Text)
+    client_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    client_id_issued_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    client_secret_expires_at: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class OAuthAuthorizationRequest(Base):
+    __tablename__ = "oauth_authorization_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "request_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="oauth_authorization_requests_hash_check",
+        ),
+        CheckConstraint(
+            "array_position(scopes, NULL) IS NULL AND hah_text_array_is_unique(scopes)",
+            name="oauth_authorization_requests_scopes_check",
+        ),
+        CheckConstraint(
+            "consumed_at IS NULL OR consumed_at <= expires_at",
+            name="oauth_authorization_requests_consumed_check",
+        ),
+        Index("oauth_authorization_requests_expires_at_idx", "expires_at"),
+        {"comment": "Short-lived browser consent requests; raw handles are never stored."},
+    )
+
+    request_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("oauth_registered_clients.client_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str | None] = mapped_column(Text)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    code_challenge: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri_provided_explicitly: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class OAuthAuthorizationCode(Base):
+    __tablename__ = "oauth_authorization_codes"
+    __table_args__ = (
+        CheckConstraint(
+            "code_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="oauth_authorization_codes_hash_check",
+        ),
+        CheckConstraint(
+            "array_position(scopes, NULL) IS NULL AND hah_text_array_is_unique(scopes)",
+            name="oauth_authorization_codes_scopes_check",
+        ),
+        CheckConstraint(
+            "consumed_at IS NULL OR consumed_at <= expires_at",
+            name="oauth_authorization_codes_consumed_check",
+        ),
+        Index("oauth_authorization_codes_expires_at_idx", "expires_at"),
+        {"comment": "One-time PKCE authorization codes; only SHA-256 hashes are stored."},
+    )
+
+    code_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    delegation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("oauth_delegations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    client_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("oauth_registered_clients.client_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    authorization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    code_challenge: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri_provided_explicitly: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class OAuthIssuedToken(Base):
+    __tablename__ = "oauth_issued_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="oauth_issued_tokens_token_hash_key"),
+        CheckConstraint(
+            "token_hash ~ '^sha256:[0-9a-f]{64}$'",
+            name="oauth_issued_tokens_hash_check",
+        ),
+        CheckConstraint(
+            "token_kind IN ('access', 'refresh')",
+            name="oauth_issued_tokens_kind_check",
+        ),
+        CheckConstraint(
+            "array_position(scopes, NULL) IS NULL AND hah_text_array_is_unique(scopes)",
+            name="oauth_issued_tokens_scopes_check",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at <= expires_at",
+            name="oauth_issued_tokens_revoked_check",
+        ),
+        Index("oauth_issued_tokens_family_id_idx", "family_id"),
+        Index("oauth_issued_tokens_expires_at_idx", "expires_at"),
+        {"comment": "Hashed OAuth access and rotating refresh tokens."},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    token_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    delegation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("oauth_delegations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    client_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("oauth_registered_clients.client_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    authorization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
+    family_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class MCPRequest(Base):

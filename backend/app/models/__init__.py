@@ -4,9 +4,13 @@ from app.models.claim import BountyClaim
 from app.models.integration import (
     APIClient,
     MCPRequest,
+    OAuthAuthorizationCode,
     OAuthAuthorizationGrant,
+    OAuthAuthorizationRequest,
     OAuthDelegation,
     OAuthIdentity,
+    OAuthIssuedToken,
+    OAuthRegisteredClient,
 )
 from app.models.payment import (
     Payment,
@@ -25,9 +29,13 @@ __all__ = [
     "Bounty",
     "BountyClaim",
     "MCPRequest",
+    "OAuthAuthorizationCode",
     "OAuthAuthorizationGrant",
+    "OAuthAuthorizationRequest",
     "OAuthDelegation",
     "OAuthIdentity",
+    "OAuthIssuedToken",
+    "OAuthRegisteredClient",
     "Payment",
     "PaymentAttempt",
     "PaymentAuthorization",

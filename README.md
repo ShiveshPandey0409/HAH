@@ -119,18 +119,19 @@ share bearer tokens: `/v1` accepts only HAH login sessions, while `/mcp` accepts
 OAuth access tokens and maps the verified delegation back to the same user.
 
 The MCP Streamable HTTP endpoint is `/mcp` and is an OAuth 2.1 protected resource.
-An external OAuth/OIDC authorization server owns user login, consent, authorization
-code + PKCE, and token issuance. HAH validates each bearer access token by
-introspection and maps its exact issuer, subject, and agent `client_id` to a locally
-approved user delegation. API keys are not accepted by `/mcp`.
+HAH now runs the matching first-party OAuth authorization server on the same backend:
+`/register`, `/authorize`, `/oauth/consent`, `/token`, and `/revoke`. The consent page
+authenticates the existing HAH account, so browser and MCP actions resolve to the same
+`users.id`. Authorization uses S256 PKCE, hashed one-time codes and tokens, rotating
+refresh tokens, and private `/oauth/introspect` validation. API keys and HAH browser
+session tokens are not accepted by `/mcp`.
 
 HAH's RFC 7662 introspection profile additionally requires `authorization_id`: an
-opaque, non-secret authorization-grant handle. The authorization server must return
+opaque, non-secret authorization-grant handle. The authorization server returns
 the same handle for every access token minted from one authorization/refresh grant,
-must issue a new never-reused handle after every new consent, and must revoke the old
-grant. The same value is recorded by the trusted local post-consent provisioning
-flow. It must never be an authorization code, access token, refresh token, ID token,
-or other credential. A token without this extension fails closed; immutable grant
+issues a new never-reused handle after every new consent, and supersedes the old
+grant. It is never an authorization code, access token, refresh token, ID token, or
+other credential. A token without this extension fails closed; immutable grant
 history prevents an old consent from being revived by reusing its handle.
 
 Every token needs `mcp:access`; `create_task` additionally needs `tasks:create`, and

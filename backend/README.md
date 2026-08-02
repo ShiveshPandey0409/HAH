@@ -162,16 +162,35 @@ or stored.
 
 The MCP Streamable HTTP endpoint is `/mcp`. It requires an OAuth bearer access token
 on every request and publishes RFC 9728 protected-resource metadata at
-`/.well-known/oauth-protected-resource/mcp`. This backend is only the resource
-server: a separate OAuth/OIDC authorization server owns login, consent,
-authorization code + PKCE, token issuance, refresh, and revocation.
+`/.well-known/oauth-protected-resource/mcp`. The same backend is also the first-party
+OAuth authorization server. It uses the existing HAH email/password account for
+browser consent and implements dynamic client registration, authorization code +
+S256 PKCE, one-time codes, rotating refresh tokens, revocation, and private RFC 7662
+introspection. Access tokens, refresh tokens, authorization codes, and browser consent
+handles are stored only as SHA-256 hashes. Dynamically issued client secrets are
+encrypted with `WEBHOOK_SECRET_ENCRYPTION_KEYS`.
 
-Configure `MCP_PUBLIC_URL`, `MCP_OAUTH_ISSUER_URL`, and the three
-`MCP_OAUTH_INTROSPECTION_*` values. The resource URL must be the exact public
-`https://.../mcp` audience. Staging and production reject missing credentials or
-non-HTTPS OAuth URLs. Development without introspection credentials remains
-protected and rejects every token; it never falls back to the legacy `hah.*` API
-key format.
+For the Render service, configure:
+
+```dotenv
+MCP_PUBLIC_URL=https://hah-api-prava.onrender.com/mcp
+MCP_OAUTH_ISSUER_URL=https://hah-api-prava.onrender.com
+MCP_OAUTH_INTROSPECTION_URL=https://hah-api-prava.onrender.com/oauth/introspect
+MCP_OAUTH_INTROSPECTION_CLIENT_ID=hah-mcp-resource-server
+MCP_OAUTH_INTROSPECTION_CLIENT_SECRET=<a new random secret stored only in Render>
+```
+
+The resource URL is the exact public `/mcp` audience. The introspection client secret
+is a private service-to-service credential: do not return it to MCP clients or commit
+it. Development without all three introspection values remains protected and rejects
+every token; it never falls back to the legacy HAH session or API-key formats.
+
+An MCP client discovers the issuer, calls `POST /register`, redirects the user through
+`GET /authorize` and `/oauth/consent`, then exchanges the returned code at `POST
+/token`. The consent screen accepts the same credentials as `POST /v1/auth/login`.
+`POST /revoke` invalidates the complete access/refresh token family. `/oauth/introspect`
+is not a user endpoint and accepts only HTTP Basic authentication with the configured
+resource-server credential.
 
 The introspection response must follow RFC 7662 and return `active: true`, bearer
 `token_type`, `sub`, `client_id`, `exp`, `iat`, and exact `aud` or `resource`, plus HAH's
@@ -185,7 +204,7 @@ field. If the authorization server uses another stable grant identifier, its ada
 must expose it as `authorization_id`; otherwise HAH rejects the token.
 
 `users.id` is the single account source of truth. Browser sessions point directly
-to it. Before an MCP token can be used, the trusted post-consent flow maps its exact
+to it. During MCP consent, the authorization server maps its exact
 `(issuer, subject)` to that same HAH user and approves a delegation for its OAuth
 `client_id`. Email claims are never used for account linking. Every token needs
 `mcp:access`; `create_task` additionally needs `tasks:create`; verification needs
@@ -197,12 +216,12 @@ metadata plus uploaded screenshots/images as native MCP image content.
 HTTP and MCP operations share the same services. MCP idempotency is isolated per
 delegation, audits snapshot the actor and granted scopes, and no access token or raw
 claim set is persisted.
-`app.services.oauth_delegations.grant_oauth_delegation` and
-`revoke_oauth_delegation` are the trusted post-consent management operations; they
-are deliberately not exposed as anonymous HTTP endpoints. Provisioning must pass
-the exact `authorization_id` returned by introspection. The database retains every
-handle ever used by that delegation and rejects reuse, while a disabled external
-identity is terminal and cannot silently reactivate its child grants.
+`app.services.oauth_delegations.grant_oauth_delegation` remains the internal consent
+operation; it is never exposed anonymously. The server creates a fresh opaque
+`authorization_id` for every approval and returns it only through authenticated
+introspection. The database retains every handle ever used by that delegation and
+rejects reuse, while a disabled identity is terminal and cannot silently reactivate
+its child grants.
 
 Webhook PUT returns a signing secret once and rotates it on replacement; GET never
 returns the secret. The database stores an encrypted destination credential and a

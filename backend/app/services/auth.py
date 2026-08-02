@@ -191,11 +191,12 @@ async def login(
     *,
     ttl_seconds: int,
 ) -> AuthResponse:
-    email = str(data.email).strip().lower()
-    user = await session.scalar(select(User).where(User.email == email))
-    password_hash = user.password_hash if user is not None else _dummy_password_hash()
-    password_valid = verify_password(data.password.get_secret_value(), password_hash or "")
-    if user is None or user.password_hash is None or not password_valid:
+    user = await authenticate_password_user(
+        session,
+        email=str(data.email),
+        password=data.password.get_secret_value(),
+    )
+    if user is None:
         raise InvalidCredentialsError
 
     login_session, token = _new_session(user.id, ttl_seconds)
@@ -207,6 +208,23 @@ async def login(
         raise
     await session.refresh(login_session)
     return _auth_response(user, login_session, token)
+
+
+async def authenticate_password_user(
+    session: AsyncSession,
+    *,
+    email: str,
+    password: str,
+) -> User | None:
+    """Verify first-party account credentials without creating an HTTP session."""
+
+    normalized_email = email.strip().lower()
+    user = await session.scalar(select(User).where(User.email == normalized_email))
+    password_hash = user.password_hash if user is not None else _dummy_password_hash()
+    password_valid = verify_password(password, password_hash or "")
+    if user is None or user.password_hash is None or not password_valid:
+        return None
+    return user
 
 
 async def authenticate_token(session: AsyncSession, token: str) -> AuthenticatedSession | None:

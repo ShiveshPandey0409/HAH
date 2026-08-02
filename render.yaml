@@ -23,11 +23,11 @@ services:
       - key: MCP_PUBLIC_URL
         value: https://hah-api-prava.onrender.com/mcp
       - key: MCP_OAUTH_ISSUER_URL
-        sync: false
+        value: https://hah-api-prava.onrender.com
       - key: MCP_OAUTH_INTROSPECTION_URL
-        sync: false
+        value: https://hah-api-prava.onrender.com/oauth/introspect
       - key: MCP_OAUTH_INTROSPECTION_CLIENT_ID
-        sync: false
+        value: hah-mcp-resource-server
       - key: MCP_OAUTH_INTROSPECTION_CLIENT_SECRET
         sync: false
       - key: MCP_ALLOWED_HOSTS
