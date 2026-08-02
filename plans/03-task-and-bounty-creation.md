@@ -28,6 +28,7 @@ Request shape:
     {
       "platform": "reddit",
       "action": "comment",
+      "title": "Comment on a Reddit thread",
       "instructions": "Write an original relevant comment",
       "reward_minor": 1000,
       "slot_count": 10,

@@ -19,10 +19,12 @@ Landing
     └── Get paid
 ```
 
-## User creation API
+## Implemented backend
 
-The implemented backend scope is user creation only. A user can be a task creator, a
-freelancer, or both. Social account URLs, tasks, verification, and payments come later.
+The backend currently supports user creation plus atomic task-and-bounty creation.
+Tasks can be created through HTTP or the authenticated MCP `create_task` tool; both
+surfaces use the same validation and transaction logic. Social profiles, claims,
+submissions, and verification are the next milestones. Prava payments remain deferred.
 
 ```bash
 cd backend
@@ -49,6 +51,17 @@ curl --request POST http://localhost:8000/v1/users \
     "bio": "Reddit and LinkedIn marketing"
   }'
 ```
+
+Task endpoints:
+
+- `POST /v1/tasks` creates one draft task with all bounties atomically.
+- `GET /v1/tasks/{task_id}` reads the task and current slot counts.
+- `POST /v1/tasks/{task_id}/open` opens a valid draft task and its draft bounties.
+
+The MCP Streamable HTTP endpoint is `/mcp`. It requires a bearer token issued by the
+API-client management service with the `tasks:create` scope. Only a SHA-256 hash of
+the high-entropy secret is stored. Every successful or failed tool execution has a
+redacted, idempotent `mcp_requests` audit record.
 
 Run the PostgreSQL integration tests against the isolated test database:
 
