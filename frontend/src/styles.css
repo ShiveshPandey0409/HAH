@@ -261,6 +261,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
 }
 
 .landing-command {
+  width: fit-content;
   max-width: min(100%, 520px);
   background: var(--landing-ink) !important;
   color: var(--landing-cream);
@@ -443,24 +444,51 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
 .agent-card__sparkle { position: absolute; right: 20px; bottom: 20px; color: rgba(255, 255, 255, .75); }
 
 .agent-card--request {
-  top: 18.75%;
+  top: 16.5%;
   left: 23.35%;
-  width: 39.3%;
-  min-width: 200px;
-  height: 121px;
-  padding: 22px 24px;
+  width: 42%;
+  min-width: 210px;
+  height: 138px;
+  padding: 22px 18px 20px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  column-gap: 8px;
+  align-items: end;
+}
+
+.agent-card--request .agent-card__role {
+  grid-column: 1 / -1;
+  margin-bottom: 6px;
+}
+
+.agent-card--request .agent-card__message {
+  grid-column: 1;
+  align-self: end;
+  font-size: 18px;
+  line-height: 1.36;
+  letter-spacing: -.01em;
+}
+
+.agent-card--request .agent-card__sparkle {
+  position: static;
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  margin-bottom: 1px;
 }
 
 .human-card {
   top: 38.48%;
   left: 26.45%;
-  width: 57%;
-  min-width: 292px;
-  height: 160px;
+  right: 4%;
+  width: auto;
+  min-height: 160px;
+  height: auto;
   display: flex;
   align-items: center;
-  gap: 27px;
-  padding: 23px 28px;
+  gap: 20px;
+  padding: 20px 24px;
   border-color: rgba(235, 246, 234, .66);
   box-shadow: -12px 14px 35px -29px rgba(201, 255, 54, .45), 14px -13px 30px -28px rgba(201, 255, 54, .55), inset 0 1px rgba(255, 255, 255, .06);
 }
@@ -489,10 +517,12 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
 }
 
 .human-card__avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.human-card__copy { min-width: 0; }
-.human-card__copy .agent-card__role { margin-bottom: 4px; }
-.human-card__copy > p:not(.agent-card__role) { font-size: 18px; }
-.human-card__status { height: 39px; margin-top: 13px; padding: 0 13px 0 4px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 999px; color: var(--landing-lime); font-size: 15px; font-weight: 600; white-space: nowrap; }
+.human-card__copy { min-width: 0; flex: 1; }
+.human-card__copy .agent-card__role { margin-bottom: 2px; }
+.human-card__copy > p:not(.agent-card__role) { font-size: 18px; line-height: 1.25; }
+.human-card__statuses { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+.human-card__status { height: 36px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 999px; color: var(--landing-lime); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.human-card__status:has(svg) { padding-left: 3px; }
 
 .agent-card--response {
   top: 62.6%;
@@ -557,132 +587,4 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
   .mcp-install-card > button, .mcp-test-prompt > button, .mcp-url-block > button { justify-self: start; }
   .mcp-setup-footer { align-items: flex-start; flex-direction: column; }
   .modal-actions { flex-direction: column-reverse; }
-}
-
-@media (max-width: 768px), (max-height: 500px), (max-aspect-ratio: 6 / 5) {
-  .landing-page {
-    display: flex;
-    flex-direction: column;
-    height: 100svh;
-    min-height: 0;
-    overflow: hidden;
-    padding: 16px 16px 28px;
-    box-sizing: border-box;
-  }
-
-  .landing-nav {
-    position: relative;
-    top: auto;
-    right: auto;
-    left: auto;
-    flex-shrink: 0;
-    height: 44px;
-    margin-bottom: 8px;
-  }
-
-  .landing-brand { font-size: 15px !important; }
-  .landing-brand__mark { width: 31px; height: 31px; }
-
-  .landing-hero {
-    position: relative;
-    top: auto;
-    right: auto;
-    left: auto;
-    z-index: 2;
-    display: flex;
-    flex: 1;
-    align-items: center;
-    max-width: none;
-    min-height: 0;
-  }
-
-  .landing-hero__copy {
-    width: 100%;
-  }
-
-  .landing-hero__copy h1 {
-    font-size: clamp(48px, 13vw, 72px);
-  }
-
-  .landing-hero__description {
-    margin-top: 18px;
-    max-width: 34ch;
-    font-size: clamp(15px, 4vw, 18px);
-  }
-
-  .landing-actions {
-    flex-direction: column;
-    align-items: stretch;
-    width: 100%;
-    gap: 18px;
-    margin-top: 28px;
-  }
-
-  .landing-command {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .landing-mobile-signup,
-  .landing-mobile-steps {
-    display: flex;
-  }
-
-  .landing-mobile-steps {
-    position: relative;
-    z-index: 2;
-    flex-shrink: 0;
-    margin-top: auto;
-    padding: 20px 18px;
-    border: 1px solid rgba(5, 9, 10, .08);
-    border-radius: 20px;
-    background: rgba(255, 255, 255, .42);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  .landing-trusted { display: none; }
-
-  .landing-portrait,
-  .landing-dark-panel { display: none; }
-
-  .landing-dot-field {
-    display: block;
-    top: auto;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 42%;
-    opacity: .14;
-    background-image: radial-gradient(circle, rgba(5, 9, 10, .35) .7px, transparent .8px);
-    mask-image: linear-gradient(to top, #000 25%, transparent);
-  }
-
-  .landing-network { display: none; }
-}
-
-@media (max-width: 480px) {
-  .landing-page { padding: 12px 12px 20px; }
-
-  .landing-nav { height: 40px; margin-bottom: 4px; }
-  .landing-brand { font-size: 14px !important; gap: 7px; }
-  .landing-brand__mark { width: 28px; height: 28px; }
-
-  .landing-hero__copy h1 { font-size: clamp(40px, 12vw, 56px); }
-  .landing-hero__copy h1 em { margin-top: -6px; }
-  .landing-hero__description { margin-top: 14px; font-size: 15px; line-height: 1.45; }
-  .landing-hero__description br { display: none; }
-  .landing-actions { margin-top: 22px; gap: 16px; }
-  .landing-mobile-steps { padding: 16px; }
-  .landing-mobile-steps li { font-size: 14px; }
-}
-
-@media (max-width: 768px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
-  .landing-page { padding: 12px 20px 16px; }
-
-  .landing-hero { align-items: flex-start; }
-  .landing-hero__copy h1 { font-size: clamp(34px, 7vw, 48px); }
-  .landing-hero__description { margin-top: 10px; font-size: 13px; }
-  .landing-actions { margin-top: 14px; gap: 12px; }
-  .landing-mobile-steps { display: none; }
 }
