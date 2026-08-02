@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency, require_self
+from app.api.dependencies.auth import (
+    AUTHENTICATED_RESPONSES,
+    AuthenticatedSessionDependency,
+    require_self,
+)
 from app.db.session import get_db_session
 from app.schemas.marketplace import (
     BountyClaimCreate,
@@ -23,7 +27,7 @@ from app.services.marketplace import (
     get_eligible_bounties,
 )
 
-router = APIRouter(tags=["marketplace"])
+router = APIRouter(tags=["marketplace"], responses=AUTHENTICATED_RESPONSES)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 

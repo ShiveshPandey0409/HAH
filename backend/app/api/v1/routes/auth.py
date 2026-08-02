@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency
+from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
 from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.schemas.auth import (
@@ -76,12 +76,16 @@ async def login_endpoint(data: LoginRequest, session: SessionDependency) -> Auth
         ) from error
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, responses=AUTHENTICATED_RESPONSES)
 async def me_endpoint(authenticated: AuthenticatedSessionDependency) -> UserResponse:
     return UserResponse.model_validate(authenticated.user)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=AUTHENTICATED_RESPONSES,
+)
 async def logout_endpoint(
     authenticated: AuthenticatedSessionDependency,
     session: SessionDependency,
@@ -90,7 +94,11 @@ async def logout_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=AUTHENTICATED_RESPONSES,
+)
 async def change_password_endpoint(
     data: ChangePasswordRequest,
     authenticated: AuthenticatedSessionDependency,

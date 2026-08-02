@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.auth import AuthenticatedSessionDependency, require_self
+from app.api.dependencies.auth import (
+    AUTHENTICATED_RESPONSES,
+    AuthenticatedSessionDependency,
+    require_self,
+)
 from app.db.session import get_db_session
 from app.schemas.webhook import (
     WebhookEndpointPutResponse,
@@ -26,7 +30,7 @@ from app.services.webhooks import (
     get_webhook_endpoint,
 )
 
-router = APIRouter(tags=["webhooks"])
+router = APIRouter(tags=["webhooks"], responses=AUTHENTICATED_RESPONSES)
 SessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 

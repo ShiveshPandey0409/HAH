@@ -265,3 +265,11 @@ async def test_openapi_contains_auth_and_authenticated_task_crud(client: AsyncCl
             if method == "parameters" or (path, method) in public_operations:
                 continue
             assert operation["security"] == [{"HTTP session": []}], (path, method)
+            unauthorized = operation["responses"]["401"]
+            assert unauthorized["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/AuthenticationErrorResponse"
+            }
+            assert unauthorized["headers"]["WWW-Authenticate"]["schema"] == {
+                "type": "string",
+                "example": "Bearer",
+            }
