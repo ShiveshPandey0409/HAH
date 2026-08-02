@@ -170,6 +170,23 @@ uv run pytest
 
 API documentation is available at `http://localhost:8000/docs` while the server is running.
 
+## Frontend
+
+The React frontend covers creator and human signup, task creation and publishing,
+social profiles, eligible work, claims, proof submission, manual verification,
+webhooks, and account settings. Cloudflare Kumo provides the core components.
+
+```bash
+cd frontend
+cp .env.example .env
+bun install
+bun run dev
+```
+
+`bun run dev` starts FastAPI on `8000` and Vite on `5173`; Vite proxies `/v1`
+to the API. Set `VITE_API_BASE_URL` for a separately deployed API and
+`VITE_MCP_URL` for the MCP configuration copied from the landing page.
+
 See [database/README.md](database/README.md) before initializing or adopting a database.
 
 The separate backend implementation plans are indexed in [plans/README.md](plans/README.md).

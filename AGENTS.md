@@ -32,6 +32,23 @@ Brands will create tasks an agent using MCP. The agent pays the human through Pr
 - Do not invent requirements, flows, integrations, commands, or code.
 - Ask when missing information would change the implementation.
 - Keep copy short and direct (remove stuff obvious to humans).
+- Use Bun for all frontend dependency management and scripts. Do not create an npm, pnpm, or Yarn lockfile.
+
+## Frontend
+
+- Keep the React frontend under `frontend/`.
+- Run `bun install` after changing frontend dependencies.
+- Run `bun run dev` to start FastAPI on port 8000 and Vite on port 5173 together.
+- Use `bun run dev:frontend` or `bun run dev:backend` only when debugging one side.
+- Run `bun run lint` and `bun run build` before handing off frontend changes.
+- Use Cloudflare Kumo for core UI components.
+
+## Conductor scripts
+
+- Shared workspace scripts live in `.conductor/settings.toml`.
+- The default `app` script starts FastAPI on `$CONDUCTOR_PORT` and Vite on `$CONDUCTOR_PORT + 1`.
+- Vite receives `VITE_PROXY_TARGET` so `/v1` requests reach the matching workspace API.
+- Keep Conductor run mode nonconcurrent while workspaces share the same database.
 
 # Repo conventions
 
