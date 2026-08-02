@@ -16,10 +16,16 @@ from app.models.integration import APIClient, IntegrationStatus
 from app.models.user import User
 
 TASKS_CREATE_SCOPE = "tasks:create"
+SUBMISSIONS_READ_SCOPE = "submissions:read"
 SUBMISSIONS_VERIFY_SCOPE = "submissions:verify"
 SUBMISSIONS_APPROVE_SCOPE = "submissions:approve"
 SUPPORTED_SCOPES = frozenset(
-    {TASKS_CREATE_SCOPE, SUBMISSIONS_VERIFY_SCOPE, SUBMISSIONS_APPROVE_SCOPE}
+    {
+        TASKS_CREATE_SCOPE,
+        SUBMISSIONS_READ_SCOPE,
+        SUBMISSIONS_VERIFY_SCOPE,
+        SUBMISSIONS_APPROVE_SCOPE,
+    }
 )
 TOKEN_PREFIX = "hah"
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)

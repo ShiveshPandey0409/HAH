@@ -152,7 +152,8 @@ class OAuthDelegation(Base):
         ),
         CheckConstraint(
             "approved_scopes <@ ARRAY["
-            "'mcp:access', 'tasks:create', 'submissions:verify', 'submissions:approve'"
+            "'mcp:access', 'tasks:create', 'submissions:read', "
+            "'submissions:verify', 'submissions:approve'"
             "]::text[] AND approved_scopes @> ARRAY['mcp:access']::text[]",
             name="oauth_delegations_supported_scopes_check",
         ),

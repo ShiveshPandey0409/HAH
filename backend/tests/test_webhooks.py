@@ -167,8 +167,9 @@ def test_deployments_require_https_for_configured_integrations(app_env: str) -> 
 
 
 def submission_event_data(**overrides: object) -> SubmissionCreatedData:
+    submission_id = uuid4()
     values: dict[str, object] = {
-        "submission_id": uuid4(),
+        "submission_id": submission_id,
         "claim_id": uuid4(),
         "bounty_id": uuid4(),
         "task_id": uuid4(),
@@ -176,6 +177,7 @@ def submission_event_data(**overrides: object) -> SubmissionCreatedData:
         "revision": 1,
         "submitted_at": datetime(2026, 8, 2, tzinfo=UTC),
         "proof_types": ["screenshot", "url"],
+        "submission_url": f"/v1/submissions/{submission_id}",
     }
     values.update(overrides)
     return SubmissionCreatedData.model_validate(values)
@@ -339,6 +341,7 @@ def test_canonical_submission_event_is_stable_and_allowlisted() -> None:
         "revision",
         "submitted_at",
         "proof_types",
+        "submission_url",
     }
     rendered = first_body.decode()
     for forbidden in (

@@ -32,6 +32,7 @@ from app.schemas.task import POSTGRES_BIGINT_MAX, MCPTaskCreateInput
 from app.services import mcp_requests
 from app.services.api_clients import (
     SUBMISSIONS_APPROVE_SCOPE,
+    SUBMISSIONS_READ_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
     APIClientPrincipal,
@@ -294,6 +295,7 @@ async def test_authenticated_mcp_http_transport_and_host_protection(client: Asyn
         "scopes_supported": [
             MCP_ACCESS_SCOPE,
             TASKS_CREATE_SCOPE,
+            SUBMISSIONS_READ_SCOPE,
             SUBMISSIONS_VERIFY_SCOPE,
             SUBMISSIONS_APPROVE_SCOPE,
         ],

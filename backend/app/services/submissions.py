@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.claim import BountyClaim, ClaimStatus
 from app.models.submission import (
+    ProofUpload,
     Submission,
     SubmissionProof,
     VerificationMethod,
@@ -18,6 +21,8 @@ from app.models.submission import (
 )
 from app.models.task import Bounty, Task
 from app.schemas.submission import (
+    MAX_PROOF_UPLOAD_BYTES,
+    ProofUploadResponse,
     SubmissionCreate,
     SubmissionProofResponse,
     SubmissionResponse,
@@ -41,6 +46,19 @@ _FINAL_VERIFICATION_STATUSES = frozenset(
         VerificationStatus.FAILED,
     }
 )
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ProofContent:
+    content: bytes
+    mime_type: str
+    sha256: str
 
 
 class SubmissionNotFoundError(Exception):
@@ -82,7 +100,11 @@ def _translate_database_error(error: DBAPIError) -> Exception | None:
         or sqlstate == "23514"
         or (
             sqlstate == "23505"
-            and _constraint_name(error) == "submission_proofs_submission_id_kind_key"
+            and _constraint_name(error)
+            in {
+                "submission_proofs_submission_id_kind_key",
+                "submission_proofs_upload_id_key",
+            }
         )
     ):
         return SubmissionValidationError("Submission violates a proof or state rule")
@@ -174,6 +196,21 @@ async def _submission_response(
     claim: BountyClaim,
 ) -> SubmissionResponse:
     proofs = await _load_proofs(session, submission.id)
+    upload_ids = [proof.upload_id for proof in proofs if proof.upload_id is not None]
+    uploads = {
+        upload.id: upload
+        for upload in (
+            list(
+                (
+                    await session.scalars(
+                        select(ProofUpload).where(ProofUpload.id.in_(upload_ids))
+                    )
+                ).all()
+            )
+            if upload_ids
+            else []
+        )
+    }
     return SubmissionResponse(
         id=submission.id,
         claim_id=submission.claim_id,
@@ -184,8 +221,19 @@ async def _submission_response(
                 proof_type=proof.kind,
                 url=proof.external_url,
                 storage_key=proof.storage_key,
+                upload_id=proof.upload_id,
                 mime_type=proof.mime_type,
                 sha256=proof.sha256,
+                size_bytes=(
+                    uploads[proof.upload_id].size_bytes
+                    if proof.upload_id is not None and proof.upload_id in uploads
+                    else None
+                ),
+                content_url=(
+                    f"/v1/submissions/{submission.id}/proofs/{proof.id}/content"
+                    if proof.upload_id is not None
+                    else None
+                ),
             )
             for proof in proofs
         ],
@@ -209,6 +257,197 @@ async def _load_creator_id(
     if creator_id is None:
         raise SubmissionNotFoundError("Task not found")
     return creator_id
+
+
+def _detect_image_mime_type(content: bytes) -> str:
+    for signature, mime_type in _IMAGE_SIGNATURES:
+        if content.startswith(signature):
+            return mime_type
+    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "image/webp"
+    raise SubmissionValidationError("Only PNG, JPEG, GIF, or WebP images are supported")
+
+
+async def create_proof_upload(
+    session: AsyncSession,
+    claim_id: UUID,
+    *,
+    freelancer_id: UUID,
+    proof_type: str,
+    content: bytes,
+) -> ProofUploadResponse:
+    if proof_type not in {"screenshot", "image"}:
+        raise SubmissionValidationError("Only screenshot and image proofs can be uploaded")
+    if not content:
+        raise SubmissionValidationError("Proof image cannot be empty")
+    if len(content) > MAX_PROOF_UPLOAD_BYTES:
+        raise SubmissionValidationError("Proof image cannot exceed 5 MiB")
+
+    claim = await session.scalar(
+        select(BountyClaim).where(BountyClaim.id == claim_id).with_for_update()
+    )
+    if claim is None or claim.freelancer_id != freelancer_id:
+        raise SubmissionNotFoundError("Claim not found")
+    if claim.status not in _SUBMITTABLE_STATUSES:
+        raise SubmissionConflictError("Claim cannot accept a proof upload")
+    if (
+        claim.status == ClaimStatus.CLAIMED
+        and claim.claim_expires_at is not None
+        and claim.claim_expires_at <= datetime.now(UTC)
+    ):
+        raise SubmissionConflictError("Claim reservation has expired")
+
+    bounty = await session.get(Bounty, claim.bounty_id)
+    if bounty is None:
+        raise SubmissionNotFoundError("Bounty not found")
+    if proof_type not in bounty.proof_requirements:
+        raise SubmissionValidationError("This proof type is not required by the subtask")
+
+    mime_type = _detect_image_mime_type(content)
+    upload = ProofUpload(
+        claim_id=claim.id,
+        freelancer_id=freelancer_id,
+        kind=proof_type,
+        content=content,
+        mime_type=mime_type,
+        sha256=hashlib.sha256(content).hexdigest(),
+        size_bytes=len(content),
+    )
+    session.add(upload)
+    try:
+        await session.flush()
+        await session.refresh(upload)
+    except DBAPIError as error:
+        translated = _translate_database_error(error)
+        if translated is not None:
+            raise translated from error
+        raise
+    return ProofUploadResponse(
+        upload_id=upload.id,
+        claim_id=upload.claim_id,
+        proof_type=upload.kind,
+        mime_type=upload.mime_type,
+        sha256=upload.sha256,
+        size_bytes=upload.size_bytes,
+        created_at=upload.created_at,
+    )
+
+
+async def create_proof_upload_and_commit(
+    session: AsyncSession,
+    claim_id: UUID,
+    *,
+    freelancer_id: UUID,
+    proof_type: str,
+    content: bytes,
+) -> ProofUploadResponse:
+    try:
+        response = await create_proof_upload(
+            session,
+            claim_id,
+            freelancer_id=freelancer_id,
+            proof_type=proof_type,
+            content=content,
+        )
+        await session.commit()
+        return response
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def _authorized_submission(
+    session: AsyncSession,
+    submission_id: UUID,
+    *,
+    authorized_user_id: UUID,
+    creator_only: bool = False,
+) -> tuple[Submission, BountyClaim, Bounty, UUID]:
+    submission = await session.get(Submission, submission_id)
+    if submission is None:
+        raise SubmissionNotFoundError("Submission not found")
+    claim = await session.get(BountyClaim, submission.claim_id)
+    if claim is None:
+        raise SubmissionNotFoundError("Claim not found")
+    bounty = await session.get(Bounty, claim.bounty_id)
+    if bounty is None:
+        raise SubmissionNotFoundError("Bounty not found")
+    creator_id = await _load_creator_id(session, bounty)
+    allowed_user_ids = {creator_id} if creator_only else {creator_id, claim.freelancer_id}
+    if authorized_user_id not in allowed_user_ids:
+        raise SubmissionNotFoundError("Submission not found")
+    return submission, claim, bounty, creator_id
+
+
+async def get_submission(
+    session: AsyncSession,
+    submission_id: UUID,
+    *,
+    authorized_user_id: UUID,
+    creator_only: bool = False,
+) -> SubmissionResponse:
+    submission, claim, _, _ = await _authorized_submission(
+        session,
+        submission_id,
+        authorized_user_id=authorized_user_id,
+        creator_only=creator_only,
+    )
+    return await _submission_response(session, submission, claim)
+
+
+async def list_task_submissions(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    authorized_creator_id: UUID,
+) -> list[SubmissionResponse]:
+    task = await session.get(Task, task_id)
+    if task is None or task.creator_id != authorized_creator_id:
+        raise SubmissionNotFoundError("Task not found")
+    rows = list(
+        (
+            await session.execute(
+                select(Submission, BountyClaim)
+                .join(BountyClaim, BountyClaim.id == Submission.claim_id)
+                .join(Bounty, Bounty.id == BountyClaim.bounty_id)
+                .where(Bounty.task_id == task_id)
+                .order_by(Submission.submitted_at.desc(), Submission.id.desc())
+            )
+        ).all()
+    )
+    return [await _submission_response(session, submission, claim) for submission, claim in rows]
+
+
+async def get_submission_proof_content(
+    session: AsyncSession,
+    submission_id: UUID,
+    proof_id: UUID,
+    *,
+    authorized_user_id: UUID,
+    creator_only: bool = False,
+) -> ProofContent:
+    await _authorized_submission(
+        session,
+        submission_id,
+        authorized_user_id=authorized_user_id,
+        creator_only=creator_only,
+    )
+    proof = await session.scalar(
+        select(SubmissionProof).where(
+            SubmissionProof.id == proof_id,
+            SubmissionProof.submission_id == submission_id,
+        )
+    )
+    if proof is None or proof.upload_id is None:
+        raise SubmissionNotFoundError("Image proof not found")
+    upload = await session.get(ProofUpload, proof.upload_id)
+    if upload is None:
+        raise SubmissionNotFoundError("Image proof not found")
+    return ProofContent(
+        content=upload.content,
+        mime_type=upload.mime_type,
+        sha256=upload.sha256,
+    )
 
 
 async def create_submission(
@@ -243,6 +482,47 @@ async def create_submission(
     if missing_types:
         raise SubmissionValidationError("Submission is missing a required proof type")
 
+    upload_ids = [proof.upload_id for proof in data.proofs if proof.upload_id is not None]
+    uploads = {
+        upload.id: upload
+        for upload in (
+            list(
+                (
+                    await session.scalars(
+                        select(ProofUpload)
+                        .where(ProofUpload.id.in_(upload_ids))
+                        .with_for_update()
+                    )
+                ).all()
+            )
+            if upload_ids
+            else []
+        )
+    }
+    if len(uploads) != len(upload_ids):
+        raise SubmissionValidationError("A proof upload does not exist")
+    already_used_upload_ids = set(
+        (
+            await session.scalars(
+                select(SubmissionProof.upload_id).where(
+                    SubmissionProof.upload_id.in_(upload_ids)
+                )
+            )
+        ).all()
+    ) if upload_ids else set()
+    if already_used_upload_ids:
+        raise SubmissionConflictError("A proof upload has already been submitted")
+    for proof in data.proofs:
+        if proof.upload_id is None:
+            continue
+        upload = uploads[proof.upload_id]
+        if (
+            upload.claim_id != claim.id
+            or upload.freelancer_id != claim.freelancer_id
+            or upload.kind != proof.proof_type
+        ):
+            raise SubmissionValidationError("A proof upload does not belong to this claim")
+
     latest_revision = await session.scalar(
         select(func.max(Submission.revision)).where(Submission.claim_id == claim.id)
     )
@@ -262,14 +542,16 @@ async def create_submission(
     try:
         await session.flush()
         for proof in data.proofs:
+            upload = uploads.get(proof.upload_id) if proof.upload_id is not None else None
             session.add(
                 SubmissionProof(
                     submission_id=submission.id,
                     kind=proof.proof_type,
                     external_url=proof.url,
-                    storage_key=proof.storage_key,
-                    mime_type=proof.mime_type,
-                    sha256=proof.sha256,
+                    storage_key=(f"proof-uploads/{upload.id}" if upload is not None else None),
+                    upload_id=upload.id if upload is not None else None,
+                    mime_type=upload.mime_type if upload is not None else None,
+                    sha256=upload.sha256 if upload is not None else None,
                     proof_metadata={},
                 )
             )
@@ -300,6 +582,7 @@ async def create_submission(
             "revision": submission.revision,
             "submitted_at": submission.submitted_at.isoformat(),
             "proof_types": [proof.proof_type for proof in data.proofs],
+            "submission_url": f"/v1/submissions/{submission.id}",
         },
     )
     return response

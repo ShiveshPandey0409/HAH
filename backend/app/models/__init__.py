@@ -9,7 +9,7 @@ from app.models.integration import (
     OAuthIdentity,
 )
 from app.models.social import SocialAccount
-from app.models.submission import Submission, SubmissionProof
+from app.models.submission import ProofUpload, Submission, SubmissionProof
 from app.models.task import Bounty, Task
 from app.models.user import PasswordResetToken, User, UserSession
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
@@ -23,6 +23,7 @@ __all__ = [
     "OAuthDelegation",
     "OAuthIdentity",
     "PasswordResetToken",
+    "ProofUpload",
     "SocialAccount",
     "Submission",
     "SubmissionProof",

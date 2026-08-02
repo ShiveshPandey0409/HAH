@@ -115,7 +115,7 @@ async def test_database_enforces_unique_strict_proof_shape(client: AsyncClient) 
                 ),
                 {"submission_id": submission_id},
             )
-        assert sqlstate(ambiguous.value) == "23514"
+        assert sqlstate(ambiguous.value) == "HVL01"
         await session.rollback()
 
 

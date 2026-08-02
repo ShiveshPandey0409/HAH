@@ -12,6 +12,7 @@ dependencies = [
   "httpx>=0.28",
   "mcp>=2.0,<3",
   "pydantic-settings>=2.10",
+  "python-multipart>=0.0.20",
   "sqlalchemy[asyncio]>=2.0",
   "uvicorn[standard]>=0.35",
 ]

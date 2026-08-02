@@ -22,6 +22,7 @@ from app.models import (  # noqa: F401
     OAuthDelegation,
     OAuthIdentity,
     PasswordResetToken,
+    ProofUpload,
     SocialAccount,
     Submission,
     SubmissionProof,

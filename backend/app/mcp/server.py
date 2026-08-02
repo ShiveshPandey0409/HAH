@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -8,12 +10,13 @@ from mcp.server import MCPServer
 from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from pydantic import Field
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.config import Settings, get_settings
+from app.db.session import AsyncSessionFactory
 from app.mcp.oauth import (
     MCP_ACCESS_SCOPE,
     build_oauth_token_verifier,
@@ -28,15 +31,18 @@ from app.schemas.task import (
 )
 from app.services.api_clients import (
     SUBMISSIONS_APPROVE_SCOPE,
+    SUBMISSIONS_READ_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     TASKS_CREATE_SCOPE,
     require_api_scope,
 )
 from app.services.mcp_requests import create_task_from_mcp, verify_submission_from_mcp
+from app.services.submissions import get_submission, get_submission_proof_content
 
 MCP_SUPPORTED_SCOPES = (
     MCP_ACCESS_SCOPE,
     TASKS_CREATE_SCOPE,
+    SUBMISSIONS_READ_SCOPE,
     SUBMISSIONS_VERIFY_SCOPE,
     SUBMISSIONS_APPROVE_SCOPE,
 )
@@ -85,6 +91,51 @@ async def verify_submission(
         result=result,
         checks=checks or {},
         failure_reason=failure_reason,
+    )
+
+
+async def get_submission_proofs(submission_id: UUID) -> CallToolResult:
+    """Read one owned submission and return its image proofs as MCP image content."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, SUBMISSIONS_READ_SCOPE)
+    async with AsyncSessionFactory() as session:
+        submission = await get_submission(
+            session,
+            submission_id,
+            authorized_user_id=principal.user_id,
+            creator_only=True,
+        )
+        content = [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    submission.model_dump(mode="json"),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+        ]
+        for proof in submission.proofs:
+            if proof.upload_id is None:
+                continue
+            image = await get_submission_proof_content(
+                session,
+                submission.id,
+                proof.id,
+                authorized_user_id=principal.user_id,
+                creator_only=True,
+            )
+            content.append(
+                ImageContent(
+                    type="image",
+                    data=base64.b64encode(image.content).decode("ascii"),
+                    mime_type=image.mime_type,
+                )
+            )
+    return CallToolResult(
+        content=content,
+        structured_content=submission.model_dump(mode="json"),
     )
 
 
@@ -161,6 +212,20 @@ def create_mcp_server(
             open_world_hint=False,
         ),
     )(create_task)
+    server.tool(
+        title="Get submission proofs",
+        description=(
+            "Read one submission for the authenticated creator and return uploaded proofs, "
+            "including screenshots as MCP image content."
+        ),
+        structured_output=False,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(get_submission_proofs)
     server.tool(
         title="Verify task submission",
         description="Verify the latest submission for one of the authenticated creator's tasks.",

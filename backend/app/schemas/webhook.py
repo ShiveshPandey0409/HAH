@@ -103,6 +103,12 @@ class SubmissionCreatedData(BaseModel):
     revision: int = Field(gt=0)
     submitted_at: datetime
     proof_types: list[ProofType] = Field(min_length=1, json_schema_extra={"uniqueItems": True})
+    submission_url: str = Field(
+        pattern=(
+            r"^/v1/submissions/[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+    )
 
     @field_validator("submitted_at")
     @classmethod

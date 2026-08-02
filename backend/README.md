@@ -85,7 +85,11 @@ marketplace, submissions, verification, and webhook configuration:
 - `GET /v1/users/{user_id}/social-profiles`
 - `GET /v1/freelancers/{freelancer_id}/bounties`
 - `POST /v1/bounties/{bounty_id}/claims`
+- `POST /v1/claims/{claim_id}/proof-uploads`
 - `POST /v1/claims/{claim_id}/submissions`
+- `GET /v1/submissions/{submission_id}`
+- `GET /v1/tasks/{task_id}/submissions`
+- `GET /v1/submissions/{submission_id}/proofs/{proof_id}/content`
 - `POST /v1/submissions/{submission_id}/verification`
 - `PUT /v1/users/{creator_id}/webhook`
 - `GET /v1/users/{creator_id}/webhook`
@@ -101,6 +105,38 @@ Task CRUD operates on the whole draft aggregate. `PUT` replaces the task and its
 bounties atomically; `DELETE` removes only a draft. Opened tasks reject replacement
 and deletion to preserve claims, submissions, audits, and future payment history.
 Creator/freelancer/verifier IDs come from the authenticated session, not request bodies.
+
+Each bounty is a flat subtask and declares one or more proof requirements: `url`,
+`screenshot`, or `image`. URL proofs are accepted as submitted HTTPS links; this
+hackathon backend does not fetch or automatically validate their content.
+
+For a screenshot or image, the authenticated claimant uploads the file first:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/claims/CLAIM_ID/proof-uploads \
+  -H "Authorization: Bearer WORKER_TOKEN" \
+  -F "proof_type=screenshot" \
+  -F "file=@proof.png"
+```
+
+The response's `upload_id` is then attached to the submission:
+
+```json
+{
+  "proofs": [
+    {"proof_type": "url", "url": "https://www.reddit.com/r/example/comments/abc"},
+    {"proof_type": "screenshot", "upload_id": "UPLOAD_UUID"}
+  ]
+}
+```
+
+PNG, JPEG, GIF, and WebP files up to 5 MiB are supported. Images are temporarily
+stored in PostgreSQL for the hackathon, so no S3 bucket or Render disk is required.
+The API validates file signatures, hashes each upload, ties it to the claimant and
+claim, and prevents reuse. The creator and submitting worker can read a submission
+and fetch its authenticated `content_url`; only the creator can list all submissions
+for a task. A `submission.created` webhook includes `submission_url`, which can be
+retrieved with the creator's API session.
 
 Social enrichment is behind a vendor-neutral adapter. Because no provider contract
 or credentials are specified in this repository, the default adapter safely returns
@@ -138,6 +174,8 @@ to it. Before an MCP token can be used, the trusted post-consent flow maps its e
 `client_id`. Email claims are never used for account linking. Every token needs
 `mcp:access`; `create_task` additionally needs `tasks:create`; verification needs
 `submissions:verify`, plus `submissions:approve` when the result is `passed`.
+The read-only `get_submission_proofs` tool needs `submissions:read` and returns URL
+metadata plus uploaded screenshots/images as native MCP image content.
 HTTP and MCP operations share the same services. MCP idempotency is isolated per
 delegation, audits snapshot the actor and granted scopes, and no access token or raw
 claim set is persisted.
