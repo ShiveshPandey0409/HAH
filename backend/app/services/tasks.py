@@ -74,9 +74,9 @@ async def _claim_counts(session: AsyncSession, bounty_ids: list[UUID]) -> dict[U
         text(
             """
             SELECT bounty_id, count(*)::integer AS claim_count
-              FROM bounty_claims
+             FROM bounty_claims
              WHERE bounty_id = ANY(:bounty_ids)
-               AND status NOT IN ('expired', 'cancelled', 'rejected')
+               AND hah_claim_occupies_slot(status, claim_expires_at)
              GROUP BY bounty_id
             """
         ).bindparams(bindparam("bounty_ids", type_=ARRAY(PG_UUID(as_uuid=True)))),

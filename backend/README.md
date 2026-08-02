@@ -27,8 +27,21 @@ uv run pytest
 ```
 
 `GET /health` checks the API process and `GET /ready` checks PostgreSQL. Implemented
-HTTP endpoints are `POST /v1/users`, `POST /v1/tasks`, `GET /v1/tasks/{task_id}`,
-and `POST /v1/tasks/{task_id}/open`.
+HTTP endpoints cover users, task creation/reads/opening, public social-profile
+submission and reads, the eligible freelancer feed, and atomic bounty claims:
+
+- `POST /v1/users`
+- `POST /v1/tasks`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/open`
+- `PUT /v1/users/{user_id}/social-profiles/{platform}`
+- `GET /v1/users/{user_id}/social-profiles`
+- `GET /v1/freelancers/{freelancer_id}/bounties`
+- `POST /v1/bounties/{bounty_id}/claims`
+
+Social enrichment is behind a vendor-neutral adapter. Because no provider contract
+or credentials are specified in this repository, the default adapter safely returns
+`503` and leaves the normalized URL stored but unvalidated. Configure a provider
+adapter to populate public metrics; no OAuth token or social credential is accepted
+or stored.
 
 The MCP Streamable HTTP endpoint is `/mcp`. It requires
 `Authorization: Bearer <api-key>` and currently exposes `create_task` to API clients

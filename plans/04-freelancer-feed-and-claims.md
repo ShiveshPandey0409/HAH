@@ -72,6 +72,10 @@ database function owns the concurrency-sensitive decision.
 
 A rejected claim must not consume a slot.
 
+Claim TTL expiration is lazy: once `claim_expires_at` passes, the reservation releases
+its capacity without rewriting the row's status. The lifetime one-claim-per-freelancer
+rule still applies, so that freelancer cannot reclaim the same bounty after timeout.
+
 ## Tests
 
 - feed contains matching Reddit and LinkedIn bounties only;

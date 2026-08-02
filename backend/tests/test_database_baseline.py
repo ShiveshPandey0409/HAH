@@ -14,4 +14,4 @@ async def test_sql_baseline_is_upgraded_to_alembic_head() -> None:
     finally:
         await engine.dispose()
 
-    assert revision == "20260802_0003"
+    assert revision == "20260802_0004"
