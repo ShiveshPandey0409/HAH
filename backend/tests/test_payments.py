@@ -49,6 +49,8 @@ class FakePravaGateway:
         self.created_customers: list[str] = []
         self.approved_amounts: dict[str, str] = {}
         self.charge_references: list[str] = []
+        self.revoked_sessions: list[str] = []
+        self.revoke_failures: list[PravaGatewayError] = []
         self.failures: list[PravaGatewayError] = []
 
     async def create_mandate_session(self, **kwargs) -> PravaMandateSession:
@@ -73,6 +75,11 @@ class FakePravaGateway:
                 updated_at=datetime.now(UTC),
             )
         ]
+
+    async def revoke_session(self, *, session_id: str) -> None:
+        self.revoked_sessions.append(session_id)
+        if self.revoke_failures:
+            raise self.revoke_failures.pop(0)
 
     async def execute_sandbox_payment(self, **kwargs) -> PravaPaymentResult:
         self.charge_references.append(kwargs["reference"])
@@ -140,6 +147,29 @@ async def test_http_prava_session_rejects_explicit_non_authorize_flow(monkeypatc
     monkeypatch.setattr(gateway, "_request", response_with_false_flag)
     with pytest.raises(PravaGatewayError, match="Prava sandbox request failed"):
         await _create_http_prava_session(gateway)
+
+
+async def test_http_prava_revoke_session_requires_success(monkeypatch) -> None:
+    gateway = _http_prava_gateway()
+    requests: list[tuple[str, str]] = []
+
+    async def successful_revoke(method, path, **kwargs):
+        del kwargs
+        requests.append((method, path))
+        return {"success": True}
+
+    monkeypatch.setattr(gateway, "_request", successful_revoke)
+    await gateway.revoke_session(session_id="ses_live_contract")
+    assert requests == [("POST", "/v1/sessions/ses_live_contract/revoke")]
+
+    async def malformed_revoke(*args, **kwargs):
+        del args, kwargs
+        return {"success": False}
+
+    monkeypatch.setattr(gateway, "_request", malformed_revoke)
+    with pytest.raises(PravaGatewayError) as caught:
+        await gateway.revoke_session(session_id="ses_live_contract")
+    assert caught.value.code == "PRAVA_INVALID_RESPONSE"
 
 
 def payment_runtime(gateway: FakePravaGateway) -> PaymentRuntime:
@@ -227,6 +257,61 @@ async def test_prava_authorization_is_owned_and_never_returns_card_data(
     assert "card_number" not in serialized
     assert "dynamiccvv" not in serialized
     assert '"cvv"' not in serialized
+
+
+@pytest.mark.parametrize("revoke_already_gone", [False, True])
+async def test_pending_prava_session_can_be_restarted(
+    client: AsyncClient,
+    monkeypatch,
+    revoke_already_gone: bool,
+) -> None:
+    creator_id, _, claim_id = await claimed_work(client, f"restart-{revoke_already_gone}")
+    task_id = await _task_id_for_claim(claim_id)
+    gateway = FakePravaGateway()
+    runtime = payment_runtime(gateway)
+    monkeypatch.setattr(payment_routes, "runtime_from_settings", lambda: runtime)
+
+    started = await client.post(
+        f"/v1/tasks/{task_id}/payment-authorization",
+        headers=client.auth_headers(creator_id),
+    )
+    assert started.status_code == 201, started.text
+    if revoke_already_gone:
+        gateway.revoke_failures.append(PravaGatewayError("NOT_FOUND", retryable=False))
+
+    restarted = await client.post(
+        f"/v1/tasks/{task_id}/payment-authorization/restart",
+        headers=client.auth_headers(creator_id),
+    )
+    assert restarted.status_code == 201, restarted.text
+    assert restarted.json()["status"] == "pending"
+    assert restarted.json()["approval_url"].startswith("https://sandbox.collect.prava.space/")
+    assert gateway.revoked_sessions == ["sess_1"]
+    assert len(gateway.created_customers) == 2
+
+
+async def test_active_prava_authorization_cannot_be_restarted(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    creator_id, _, claim_id = await claimed_work(client, "restart-active")
+    task_id = await _task_id_for_claim(claim_id)
+    gateway = FakePravaGateway()
+    runtime = payment_runtime(gateway)
+    await _authorize_task(
+        client,
+        task_id=task_id,
+        creator_id=creator_id,
+        runtime=runtime,
+        monkeypatch=monkeypatch,
+    )
+
+    restarted = await client.post(
+        f"/v1/tasks/{task_id}/payment-authorization/restart",
+        headers=client.auth_headers(creator_id),
+    )
+    assert restarted.status_code == 409
+    assert gateway.revoked_sessions == []
 
 
 async def test_verified_submission_auto_pays_once_and_credits_internal_wallet(
@@ -508,9 +593,7 @@ async def test_each_task_gets_its_own_approval_and_reports_other_blocked_budget(
     assert second_refreshed.json()["status"] == "active"
     assert second_refreshed.json()["blocked_minor"] == second_budget
     assert second_refreshed.json()["other_tasks_blocked_minor"] == first_budget
-    assert second_refreshed.json()["total_creator_blocked_minor"] == (
-        first_budget + second_budget
-    )
+    assert second_refreshed.json()["total_creator_blocked_minor"] == (first_budget + second_budget)
     assert second_refreshed.json()["additional_approval_required_minor"] == 0
 
 
@@ -539,6 +622,10 @@ async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
                 "start_task_payment_authorization",
                 {"task_id": str(task_id)},
             )
+            restarted = await mcp_client.call_tool(
+                "restart_task_payment_authorization",
+                {"task_id": str(task_id)},
+            )
             refreshed = await mcp_client.call_tool(
                 "refresh_task_payment_authorization",
                 {"task_id": str(task_id)},
@@ -548,9 +635,13 @@ async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
     assert started.structured_content["task_id"] == str(task_id)
     assert started.structured_content["status"] == "pending"
     assert started.structured_content["additional_approval_required_minor"] > 0
+    assert not restarted.is_error
+    assert restarted.structured_content["status"] == "pending"
+    assert gateway.revoked_sessions == ["sess_1"]
     assert refreshed.structured_content["status"] == "active"
-    assert refreshed.structured_content["blocked_minor"] == (
-        refreshed.structured_content["total_cap_minor"]
+    assert (
+        refreshed.structured_content["blocked_minor"]
+        == (refreshed.structured_content["total_cap_minor"])
     )
 
     submitted = await submit(client, claim_id, freelancer_id, [url_proof()])

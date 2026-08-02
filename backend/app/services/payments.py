@@ -167,6 +167,8 @@ class PravaGateway(Protocol):
 
     async def list_mandates(self, *, customer_id: str) -> list[PravaMandate]: ...
 
+    async def revoke_session(self, *, session_id: str) -> None: ...
+
     async def execute_sandbox_payment(
         self,
         *,
@@ -347,6 +349,11 @@ class HTTPPravaGateway:
             raise PravaGatewayError("PRAVA_INVALID_RESPONSE", retryable=False) from error
         return mandates
 
+    async def revoke_session(self, *, session_id: str) -> None:
+        body = await self._request("POST", f"/v1/sessions/{session_id}/revoke")
+        if body.get("success") is not True:
+            raise PravaGatewayError("PRAVA_INVALID_RESPONSE", retryable=False)
+
     async def execute_sandbox_payment(
         self,
         *,
@@ -501,8 +508,7 @@ async def _authorization_response(
             select(
                 func.coalesce(
                     func.sum(
-                        PaymentAuthorization.total_cap_minor
-                        - PaymentAuthorization.used_minor
+                        PaymentAuthorization.total_cap_minor - PaymentAuthorization.used_minor
                     ),
                     0,
                 )
@@ -519,9 +525,7 @@ async def _authorization_response(
         or 0
     )
     additional_required = (
-        remaining_minor
-        if authorization.status == AuthorizationStatus.PENDING
-        else 0
+        remaining_minor if authorization.status == AuthorizationStatus.PENDING else 0
     )
     return PaymentAuthorizationResponse(
         id=authorization.id,
@@ -597,7 +601,8 @@ async def start_task_payment_authorization(
             and authorization.provider_session_expires_at > now
         ):
             raise PaymentConflictError(
-                "A Prava approval session is already pending; wait for it to expire or refresh it"
+                "A Prava approval session is already pending; refresh it after approval "
+                "or restart it if the hosted session was consumed"
             )
         if authorization.payments_used or authorization.used_minor:
             raise PaymentConflictError("Used payment authorization cannot be replaced")
@@ -670,6 +675,74 @@ async def start_task_payment_authorization_and_commit(
 ) -> PaymentAuthorizationResponse:
     try:
         response = await start_task_payment_authorization(
+            session,
+            task_id,
+            creator_id=creator_id,
+            runtime=runtime,
+        )
+        await session.commit()
+        return response
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def restart_task_payment_authorization(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    creator_id: UUID,
+    runtime: PaymentRuntime,
+) -> PaymentAuthorizationResponse:
+    task = await session.scalar(select(Task).where(Task.id == task_id).with_for_update())
+    if task is None or task.creator_id != creator_id:
+        raise PaymentNotFoundError("Task not found")
+    authorization = await session.scalar(
+        select(PaymentAuthorization)
+        .where(PaymentAuthorization.task_id == task.id)
+        .with_for_update()
+    )
+    if authorization is None:
+        raise PaymentNotFoundError("Payment authorization not found")
+    if authorization.status == AuthorizationStatus.ACTIVE:
+        raise PaymentConflictError("Active payment authorization cannot be restarted")
+    if authorization.payments_used or authorization.used_minor:
+        raise PaymentConflictError("Used payment authorization cannot be restarted")
+    if authorization.status not in {AuthorizationStatus.PENDING, AuthorizationStatus.EXPIRED}:
+        raise PaymentConflictError("Payment authorization cannot be restarted in this state")
+
+    if authorization.provider_session_ref is not None:
+        try:
+            await runtime.gateway.revoke_session(
+                session_id=authorization.provider_session_ref,
+            )
+        except PravaGatewayError as error:
+            # Prava returns NOT_FOUND for a session that was already consumed,
+            # expired, or does not belong to the merchant. Ownership was
+            # established from our task-bound database row, so only that
+            # terminal provider response is safe to tolerate here.
+            if error.code != "NOT_FOUND":
+                raise
+
+    authorization.provider_session_expires_at = datetime.now(UTC)
+    await session.flush()
+    return await start_task_payment_authorization(
+        session,
+        task_id,
+        creator_id=creator_id,
+        runtime=runtime,
+    )
+
+
+async def restart_task_payment_authorization_and_commit(
+    session: AsyncSession,
+    task_id: UUID,
+    *,
+    creator_id: UUID,
+    runtime: PaymentRuntime,
+) -> PaymentAuthorizationResponse:
+    try:
+        response = await restart_task_payment_authorization(
             session,
             task_id,
             creator_id=creator_id,

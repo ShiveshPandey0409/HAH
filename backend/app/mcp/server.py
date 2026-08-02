@@ -44,6 +44,7 @@ from app.services.payments import (
     get_payment,
     get_wallet,
     refresh_task_payment_authorization_and_commit,
+    restart_task_payment_authorization_and_commit,
     start_task_payment_authorization_and_commit,
 )
 from app.services.payments import (
@@ -180,6 +181,23 @@ async def refresh_task_payment_authorization(
     runtime = payment_runtime_from_settings()
     async with AsyncSessionFactory() as session:
         return await refresh_task_payment_authorization_and_commit(
+            session,
+            task_id,
+            creator_id=principal.user_id,
+            runtime=runtime,
+        )
+
+
+async def restart_task_payment_authorization(
+    task_id: UUID,
+) -> PaymentAuthorizationResponse:
+    """Replace a consumed or failed hosted approval session for one owned task."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, PAYMENTS_WRITE_SCOPE)
+    runtime = payment_runtime_from_settings()
+    async with AsyncSessionFactory() as session:
+        return await restart_task_payment_authorization_and_commit(
             session,
             task_id,
             creator_id=principal.user_id,
@@ -331,6 +349,20 @@ def create_mcp_server(
             open_world_hint=True,
         ),
     )(refresh_task_payment_authorization)
+    server.tool(
+        title="Restart task payment authorization",
+        description=(
+            "Replace a consumed or failed Prava approval session and return a fresh URL. "
+            "Open the returned URL once in a passkey-capable browser."
+        ),
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=False,
+            open_world_hint=True,
+        ),
+    )(restart_task_payment_authorization)
     server.tool(
         title="Get payment status",
         description="Read one HAH reward payment without exposing payment credentials.",

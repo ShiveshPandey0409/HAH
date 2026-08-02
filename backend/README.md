@@ -100,6 +100,7 @@ marketplace, submissions, verification, and webhook configuration:
 - `GET /v1/submissions/{submission_id}/proofs/{proof_id}/content`
 - `POST /v1/submissions/{submission_id}/verification`
 - `POST /v1/tasks/{task_id}/payment-authorization`
+- `POST /v1/tasks/{task_id}/payment-authorization/restart`
 - `POST /v1/tasks/{task_id}/payment-authorization/refresh`
 - `GET /v1/tasks/{task_id}/payment-authorization`
 - `GET /v1/tasks/{task_id}/payments`
@@ -247,6 +248,11 @@ curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization" \
   -H "Authorization: Bearer $CREATOR_TOKEN"
 
 # 2. Open approval_url from the response and approve on Prava's hosted page.
+# Open it only once, in Chrome/Safari or another passkey-capable full browser.
+# If a consumed or failed session must be replaced:
+curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization/restart" \
+  -H "Authorization: Bearer $CREATOR_TOKEN"
+
 # 3. Refresh until status is active.
 curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization/refresh" \
   -H "Authorization: Bearer $CREATOR_TOKEN"
@@ -278,12 +284,19 @@ send that credential through the merchant's real processor before reporting
 `APPROVED`, plus add regulated custody/payout and redemption controls.
 
 The HAH MCP server exposes `start_task_payment_authorization`,
-`refresh_task_payment_authorization`, `get_payment_status`, and `get_wallet_balance`.
+`restart_task_payment_authorization`, `refresh_task_payment_authorization`,
+`get_payment_status`, and `get_wallet_balance`.
 MCP agents use the same HAH user as browser login through the OAuth delegation mapping,
 but they never receive the Prava secret or payment credentials. A human still opens
 the Prava approval URL once. Later `verify_submission` can schedule the reward; the
 server-side worker performs the Prava REST charge because Prava deliberately does not
 expose mandate charging through its own MCP tools.
+
+Prava approval URLs are short-lived and single-use. Opening one can consume it even
+when secure verification is unavailable, as happens in embedded/in-app browsers.
+Use `restart_task_payment_authorization` (or the matching REST `.../restart` route)
+to revoke/replace a pending session, then open the new URL exactly once in a full
+passkey-capable browser. Restart is rejected after an authorization is active or used.
 
 Official contract references: [create a mandate session](https://docs.prava.space/api-reference/create-session),
 [mandate rules](https://docs.prava.space/concepts/mandates),

@@ -23,6 +23,7 @@ from app.services.payments import (
     get_wallet,
     list_task_payments,
     refresh_task_payment_authorization_and_commit,
+    restart_task_payment_authorization_and_commit,
     retry_payment_and_commit,
     runtime_from_settings,
     start_task_payment_authorization_and_commit,
@@ -100,6 +101,35 @@ async def refresh_task_payment_authorization_endpoint(
     try:
         runtime = runtime_from_settings()
         return await refresh_task_payment_authorization_and_commit(
+            session,
+            task_id,
+            creator_id=authenticated.user.id,
+            runtime=runtime,
+        )
+    except (
+        PaymentNotFoundError,
+        PaymentConflictError,
+        PaymentValidationError,
+        PaymentProviderUnavailableError,
+        PravaGatewayError,
+        DBAPIError,
+    ) as error:
+        raise _payment_http_error(error) from error
+
+
+@router.post(
+    "/tasks/{task_id}/payment-authorization/restart",
+    response_model=PaymentAuthorizationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def restart_task_payment_authorization_endpoint(
+    task_id: UUID,
+    session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
+) -> PaymentAuthorizationResponse:
+    try:
+        runtime = runtime_from_settings()
+        return await restart_task_payment_authorization_and_commit(
             session,
             task_id,
             creator_id=authenticated.user.id,
