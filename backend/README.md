@@ -1,27 +1,39 @@
 # HAH backend
 
-## Setup
+## Quick start
+
+Prerequisites: Docker and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 cd backend
 cp .env.example .env
 uv sync --all-groups
+
 docker compose up -d postgres
 docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d hire_human \
   < ../database/schema.sql
 uv run alembic stamp 20260801_0001
 uv run alembic upgrade head
+
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## Run
+The API is now available at `http://127.0.0.1:8000`.
 
-Start the API and webhook worker in separate terminals:
+## API documentation
+
+- Swagger UI: <http://127.0.0.1:8000/docs>
+- ReDoc: <http://127.0.0.1:8000/redoc>
+- OpenAPI JSON: <http://127.0.0.1:8000/openapi.json>
+
+FastAPI serves these automatically while the API process is running.
+
+## Optional webhook worker
+
+Run this in a second terminal only when testing webhook delivery:
 
 ```bash
-uv run uvicorn app.main:app --reload
-```
-
-```bash
+cd backend
 uv run python -m app.workers.webhooks
 ```
 
