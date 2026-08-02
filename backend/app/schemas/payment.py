@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 from app.models.payment import AuthorizationStatus, PaymentStatus
+from app.schemas.task import TaskResponse
 
 
 class PaymentAuthorizationResponse(BaseModel):
@@ -59,6 +61,23 @@ class GlobalPaymentAllowanceResponse(BaseModel):
     pending_approval_minor: int = Field(ge=0)
     active_pool_count: int = Field(ge=0)
     pending_pool_count: int = Field(ge=0)
+
+
+class MCPTaskPublishResponse(BaseModel):
+    """Agent-friendly result for the authorize-and-publish MCP workflow."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task: TaskResponse
+    payment_authorization: PaymentAuthorizationResponse
+    ready: bool
+    human_approval_required: bool
+    next_action: Literal[
+        "task_open",
+        "open_approval_url_then_call_publish_task_again",
+        "finish_human_approval_then_call_publish_task_again",
+        "payment_authorization_not_active",
+    ]
 
 
 class PaymentResponse(BaseModel):

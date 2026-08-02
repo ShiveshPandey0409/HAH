@@ -22,8 +22,11 @@ from app.mcp.oauth import (
     build_oauth_token_verifier,
     get_current_oauth_principal,
 )
+from app.models.payment import AuthorizationStatus
+from app.models.task import TaskStatus
 from app.schemas.payment import (
     GlobalPaymentAllowanceResponse,
+    MCPTaskPublishResponse,
     PaymentAuthorizationResponse,
     PaymentResponse,
     WalletResponse,
@@ -34,6 +37,13 @@ from app.schemas.task import (
     BountyCreate,
     MCPTaskCreateInput,
     TaskResponse,
+)
+from app.schemas.webhook import (
+    CURRENT_WEBHOOK_EVENT_TYPES,
+    WebhookEndpointPutResponse,
+    WebhookEndpointResponse,
+    WebhookEventType,
+    WebhookPutRequest,
 )
 from app.services.api_clients import (
     PAYMENTS_READ_SCOPE,
@@ -46,9 +56,12 @@ from app.services.api_clients import (
 )
 from app.services.mcp_requests import create_task_from_mcp, verify_submission_from_mcp
 from app.services.payments import (
+    PaymentNotFoundError,
     get_global_payment_allowance,
     get_payment,
+    get_task_payment_authorization,
     get_wallet,
+    list_task_payments,
     refresh_task_payment_authorization_and_commit,
     restart_task_payment_authorization_and_commit,
     start_task_payment_authorization_and_commit,
@@ -56,7 +69,24 @@ from app.services.payments import (
 from app.services.payments import (
     runtime_from_settings as payment_runtime_from_settings,
 )
-from app.services.submissions import get_submission, get_submission_proof_content
+from app.services.submissions import (
+    get_submission,
+    get_submission_proof_content,
+)
+from app.services.submissions import (
+    list_task_submissions as list_owned_task_submissions,
+)
+from app.services.tasks import (
+    get_task as get_owned_task,
+)
+from app.services.tasks import (
+    list_tasks as list_owned_tasks,
+)
+from app.services.tasks import (
+    open_task,
+)
+from app.services.webhooks import configure_webhook_endpoint, get_webhook_endpoint
+from app.workers.webhooks import runtime_from_settings as webhook_runtime_from_settings
 
 MCP_SUPPORTED_SCOPES = (
     MCP_ACCESS_SCOPE,
@@ -93,6 +123,113 @@ async def create_task(
         principal,
         idempotency_key=idempotency_key,
         data=data,
+    )
+
+
+async def list_tasks() -> list[TaskResponse]:
+    """List every task owned by the authenticated creator, newest first."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, TASKS_CREATE_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await list_owned_tasks(session, principal.user_id)
+
+
+async def get_task(task_id: UUID) -> TaskResponse:
+    """Read one task owned by the authenticated creator."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, TASKS_CREATE_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await get_owned_task(
+            session,
+            task_id,
+            authorized_creator_id=principal.user_id,
+        )
+
+
+async def publish_task(task_id: UUID) -> MCPTaskPublishResponse:
+    """Authorize a task budget and open it, pausing only for required human approval."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, TASKS_CREATE_SCOPE)
+    require_api_scope(principal, PAYMENTS_WRITE_SCOPE)
+    runtime = payment_runtime_from_settings()
+
+    async with AsyncSessionFactory() as session:
+        task = await get_owned_task(
+            session,
+            task_id,
+            authorized_creator_id=principal.user_id,
+        )
+        try:
+            authorization = await get_task_payment_authorization(
+                session,
+                task_id,
+                creator_id=principal.user_id,
+            )
+        except PaymentNotFoundError:
+            authorization = None
+
+    if authorization is None:
+        async with AsyncSessionFactory() as session:
+            authorization = await start_task_payment_authorization_and_commit(
+                session,
+                task_id,
+                creator_id=principal.user_id,
+                runtime=runtime,
+            )
+    elif authorization.status == AuthorizationStatus.PENDING:
+        async with AsyncSessionFactory() as session:
+            authorization = await refresh_task_payment_authorization_and_commit(
+                session,
+                task_id,
+                creator_id=principal.user_id,
+                runtime=runtime,
+            )
+    elif authorization.status == AuthorizationStatus.EXPIRED:
+        async with AsyncSessionFactory() as session:
+            authorization = await restart_task_payment_authorization_and_commit(
+                session,
+                task_id,
+                creator_id=principal.user_id,
+                runtime=runtime,
+            )
+
+    if authorization.status == AuthorizationStatus.ACTIVE and task.status == TaskStatus.DRAFT:
+        async with AsyncSessionFactory() as session:
+            task = await open_task(
+                session,
+                task_id,
+                authorized_creator_id=principal.user_id,
+            )
+    else:
+        async with AsyncSessionFactory() as session:
+            task = await get_owned_task(
+                session,
+                task_id,
+                authorized_creator_id=principal.user_id,
+            )
+
+    if authorization.status == AuthorizationStatus.ACTIVE and task.status == TaskStatus.OPEN:
+        next_action = "task_open"
+    elif authorization.approval_url is not None:
+        next_action = "open_approval_url_then_call_publish_task_again"
+    elif authorization.status == AuthorizationStatus.PENDING:
+        next_action = "finish_human_approval_then_call_publish_task_again"
+    else:
+        next_action = "payment_authorization_not_active"
+
+    return MCPTaskPublishResponse(
+        task=task,
+        payment_authorization=authorization,
+        ready=next_action == "task_open",
+        human_approval_required=next_action
+        in {
+            "open_approval_url_then_call_publish_task_again",
+            "finish_human_approval_then_call_publish_task_again",
+        },
+        next_action=next_action,
     )
 
 
@@ -158,6 +295,19 @@ async def get_submission_proofs(submission_id: UUID) -> CallToolResult:
         content=content,
         structured_content=submission.model_dump(mode="json"),
     )
+
+
+async def list_task_submissions(task_id: UUID) -> list[SubmissionResponse]:
+    """List all human submissions for one owned task, newest first."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, SUBMISSIONS_READ_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await list_owned_task_submissions(
+            session,
+            task_id,
+            authorized_creator_id=principal.user_id,
+        )
 
 
 async def start_task_payment_authorization(
@@ -233,11 +383,82 @@ async def get_payment_status(payment_id: UUID) -> PaymentResponse:
         )
 
 
+async def get_task_payment_authorization_status(
+    task_id: UUID,
+) -> PaymentAuthorizationResponse:
+    """Read the payment authorization for one owned task."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, PAYMENTS_READ_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await get_task_payment_authorization(
+            session,
+            task_id,
+            creator_id=principal.user_id,
+        )
+
+
+async def list_task_payment_statuses(task_id: UUID) -> list[PaymentResponse]:
+    """List every automatic reward payment for one owned task."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, PAYMENTS_READ_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await list_task_payments(
+            session,
+            task_id,
+            creator_id=principal.user_id,
+        )
+
+
 async def get_wallet_balance() -> WalletResponse:
     principal = get_current_oauth_principal()
     require_api_scope(principal, PAYMENTS_READ_SCOPE)
     async with AsyncSessionFactory() as session:
         return await get_wallet(session, user_id=principal.user_id)
+
+
+async def configure_webhook(
+    url: Annotated[str, Field(min_length=1, max_length=2048)],
+    subscribed_events: list[WebhookEventType] | None = None,
+) -> WebhookEndpointPutResponse:
+    """Create or rotate the authenticated creator's signed webhook endpoint."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, SUBMISSIONS_APPROVE_SCOPE)
+    runtime = webhook_runtime_from_settings()
+    data = WebhookPutRequest(
+        url=url,
+        subscribed_events=(
+            subscribed_events
+            if subscribed_events is not None
+            else sorted(CURRENT_WEBHOOK_EVENT_TYPES, key=lambda event: event.value)
+        ),
+    )
+    async with AsyncSessionFactory() as session:
+        return await configure_webhook_endpoint(
+            session,
+            creator_id=principal.user_id,
+            data=data,
+            cipher=runtime.cipher,
+            resolver=runtime.resolver,
+            policy=runtime.policy,
+        )
+
+
+async def get_webhook() -> WebhookEndpointResponse:
+    """Read the authenticated creator's webhook URL and subscribed events."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, SUBMISSIONS_READ_SCOPE)
+    runtime = webhook_runtime_from_settings()
+    async with AsyncSessionFactory() as session:
+        return await get_webhook_endpoint(
+            session,
+            creator_id=principal.user_id,
+            cipher=runtime.cipher,
+            policy=runtime.policy,
+        )
 
 
 class OAuthChallengeScopeMiddleware:
@@ -293,7 +514,13 @@ def create_mcp_server(
     server = MCPServer(
         "hire-a-human",
         title="Hire a Human",
-        description="Create auditable marketing tasks and verify human submissions.",
+        description=(
+            "Create, fund, and monitor auditable human marketing tasks. After create_task, "
+            "call publish_task. It returns a human approval URL only when the reusable "
+            "allowance needs funding; call publish_task again after approval. Later tasks "
+            "normally publish immediately from the same allowance. Use webhooks or the list "
+            "tools to monitor submissions, verification, and payments."
+        ),
         version="0.1.0",
         token_verifier=verifier,
         auth=AuthSettings(
@@ -314,6 +541,43 @@ def create_mcp_server(
         ),
     )(create_task)
     server.tool(
+        title="List owned tasks",
+        description="List every task owned by the authenticated creator, newest first.",
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(list_tasks)
+    server.tool(
+        title="Get task",
+        description="Read one owned task, its current status, and its bounty progress.",
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(get_task)
+    server.tool(
+        title="Fund and publish task",
+        description=(
+            "Call immediately after create_task. The first call returns one human approval "
+            "URL only if the reusable HAH allowance needs funding. Call again after approval; "
+            "later tasks usually fund and open in one call."
+        ),
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
+    )(publish_task)
+    server.tool(
         title="Get submission proofs",
         description=(
             "Read one submission for the authenticated creator and return uploaded proofs, "
@@ -327,6 +591,20 @@ def create_mcp_server(
             open_world_hint=False,
         ),
     )(get_submission_proofs)
+    server.tool(
+        title="List task submissions",
+        description=(
+            "List every human submission and verification state for one owned task. "
+            "Use get_submission_proofs when image content is needed."
+        ),
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(list_task_submissions)
     server.tool(
         title="Verify task submission",
         description="Verify the latest submission for one of the authenticated creator's tasks.",
@@ -406,6 +684,28 @@ def create_mcp_server(
         ),
     )(get_payment_status)
     server.tool(
+        title="Get task payment authorization",
+        description="Read the allowance reservation and human-approval state for one owned task.",
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(get_task_payment_authorization_status)
+    server.tool(
+        title="List task payments",
+        description="List every automatic human reward payment for one owned task.",
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(list_task_payment_statuses)
+    server.tool(
         title="Get internal wallet balance",
         description="Read the authenticated user's non-redeemable hackathon reward wallet.",
         structured_output=True,
@@ -416,6 +716,31 @@ def create_mcp_server(
             open_world_hint=False,
         ),
     )(get_wallet_balance)
+    server.tool(
+        title="Configure signed webhook",
+        description=(
+            "Create or rotate the authenticated creator's HTTPS webhook. Returns the signing "
+            "secret once; store it securely. Omitting events subscribes to all supported events."
+        ),
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=True,
+            idempotent_hint=False,
+            open_world_hint=True,
+        ),
+    )(configure_webhook)
+    server.tool(
+        title="Get webhook configuration",
+        description="Read the configured webhook URL, subscriptions, and delivery policy.",
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(get_webhook)
     http_app = server.streamable_http_app(
         streamable_http_path="/mcp",
         json_response=True,

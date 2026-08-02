@@ -231,4 +231,6 @@ export interface WebhookEndpoint {
 export type WebhookEvent =
   | 'submission.created'
   | 'verification.completed'
+  | 'payment.succeeded'
+  | 'payment.failed'
   | 'mcp_request.completed'

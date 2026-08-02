@@ -10,6 +10,8 @@ import type { WebhookEndpoint, WebhookEvent } from '../types'
 const events: { value: WebhookEvent; label: string; body: string }[] = [
   { value: 'submission.created', label: 'Submission created', body: 'A human sends proof for claimed work.' },
   { value: 'verification.completed', label: 'Verification completed', body: 'A submission is approved, rejected, or held.' },
+  { value: 'payment.succeeded', label: 'Payment succeeded', body: 'An approved reward reaches the human wallet.' },
+  { value: 'payment.failed', label: 'Payment failed', body: 'An automatic reward needs attention or a retry.' },
   { value: 'mcp_request.completed', label: 'MCP request completed', body: 'An agent task or verification request finishes.' },
 ]
 const apiDocsUrl = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/docs`
@@ -18,7 +20,7 @@ export function IntegrationsPage() {
   const { user } = useAuth()
   const [endpoint, setEndpoint] = useState<WebhookEndpoint | null>(null)
   const [url, setUrl] = useState('')
-  const [subscriptions, setSubscriptions] = useState<WebhookEvent[]>(['submission.created', 'verification.completed'])
+  const [subscriptions, setSubscriptions] = useState<WebhookEvent[]>(events.map((event) => event.value))
   const [secret, setSecret] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -40,7 +42,7 @@ export function IntegrationsPage() {
     <div className="page integrations-page">
       <PageHeader title="Integrations" description="Send signed task events to your backend or agent." />
       <Surface as="section" className="mcp-integration-callout rounded-lg border border-kumo-hairline p-6">
-        <span><PlugsConnected size={24} /></span><div><h2>Connect HAH to Codex</h2><p>Add the MCP server, approve OAuth with this HAH account, and test a read-only tool in a few guided steps.</p></div><Link href="/connect">Open connection guide <ArrowRight /></Link>
+        <span><PlugsConnected size={24} /></span><div><h2>Connect HAH to your AI app</h2><p>One command adds the MCP server. HAH login opens automatically.</p></div><Link href="/connect">Connect MCP <ArrowRight /></Link>
       </Surface>
       <div className="integration-layout">
         <Surface render={<form className="panel integration-form" onSubmit={save} />} className="rounded-lg border border-kumo-hairline p-6">

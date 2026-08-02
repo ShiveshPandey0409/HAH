@@ -506,34 +506,30 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
 .mcp-setup-page { width: min(1120px, 100%); margin: 0 auto; padding: 0 32px 48px; }
 .mcp-setup-nav { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--color-kumo-hairline); }
 .mcp-setup-nav > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.mcp-setup-hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); align-items: center; gap: 48px; padding: 64px 0 40px; }
-.mcp-setup-hero > div:first-child { display: grid; justify-items: start; gap: 18px; }
-.mcp-setup-hero h1, .mcp-setup-hero p { margin: 0; }
-.mcp-setup-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; }
-.mcp-setup-summary > span, .mcp-step-number { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--color-kumo-brand); color: white; font-weight: 700; }
-.mcp-setup-summary > div { display: grid; gap: 3px; }
-.mcp-setup-content { display: grid; gap: 18px; }
-.mcp-account-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; }
-.mcp-account-card h2, .mcp-account-card p, .mcp-card-heading h2, .mcp-card-heading p, .mcp-permissions-card h2, .mcp-permissions-card p { margin: 0; }
-.mcp-account-card > div:nth-child(2), .mcp-card-heading > div:last-child { display: grid; gap: 5px; }
-.mcp-account-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.mcp-connect-card, .mcp-test-card, .mcp-permissions-card, .mcp-cli-guide, .mcp-app-guide { display: grid; gap: 18px; }
+.mcp-simple-hero { display: grid; gap: 32px; padding: 72px 0 28px; }
+.mcp-simple-heading { display: grid; justify-items: start; gap: 14px; max-width: 720px; }
+.mcp-simple-heading h1, .mcp-simple-heading p { margin: 0; }
+.mcp-install-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 18px; border-color: var(--color-kumo-brand); }
+.mcp-install-card > span { grid-column: 1 / -1; font-size: .78rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.mcp-install-card code { font-size: clamp(.9rem, 1.8vw, 1.15rem); overflow-wrap: anywhere; }
+.mcp-install-card small { grid-column: 1 / -1; }
+.mcp-simple-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 18px; }
+.mcp-next-card, .mcp-test-card { display: grid; align-content: start; gap: 18px; }
+.mcp-next-card h2, .mcp-next-card p, .mcp-card-heading h2, .mcp-card-heading p, .mcp-direct-card h2, .mcp-direct-card p { margin: 0; }
+.mcp-next-list { display: grid; gap: 14px; list-style: none; margin: 0; padding: 0; }
+.mcp-next-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 12px; }
+.mcp-next-list li > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--color-kumo-brand); color: white; font-weight: 700; }
+.mcp-next-list li > div { display: grid; gap: 2px; }
 .mcp-card-heading { display: flex; align-items: flex-start; gap: 14px; }
-.mcp-command-block { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--color-kumo-hairline); border-radius: 10px; background: var(--color-kumo-canvas); }
-.mcp-command-block--primary { padding: 18px; border-color: var(--color-kumo-brand); }
-.mcp-command-block > div { display: grid; gap: 8px; min-width: 0; }
-.mcp-command-block span { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.mcp-command-block code, .mcp-test-prompt code { overflow-wrap: anywhere; }
-.mcp-command-list { display: grid; gap: 10px; margin-top: 12px; }
-.mcp-instructions { display: grid; gap: 10px; margin: 0; padding-left: 22px; }
-.mcp-test-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px; border-radius: 10px; background: var(--color-kumo-canvas); }
-.mcp-success-note { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--color-kumo-success); }
-.mcp-scope-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.mcp-scope-grid > span { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--color-kumo-hairline); border-radius: 10px; }
+.mcp-test-prompt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px; border-radius: 10px; background: var(--color-kumo-canvas); }
+.mcp-test-prompt code, .mcp-url-block code { overflow-wrap: anywhere; }
+.mcp-direct-card { display: grid; grid-template-columns: minmax(220px, .6fr) minmax(0, 1fr); align-items: center; gap: 18px; margin-top: 18px; }
+.mcp-direct-card > div:first-child { display: grid; gap: 4px; }
+.mcp-url-block { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; border-radius: 9px; background: var(--color-kumo-canvas); }
 .mcp-setup-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 32px; }
 
 @media (max-width: 960px) {
-  .dashboard-grid, .integration-layout, .review-layout, .editor-layout, .mcp-setup-hero { grid-template-columns: 1fr; }
+  .dashboard-grid, .integration-layout, .review-layout, .editor-layout, .mcp-simple-grid { grid-template-columns: 1fr; }
   .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editor-summary { position: static; }
 }
@@ -556,10 +552,9 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
   .auth-story { display: none; }
   .auth-main { padding: 24px 18px; }
   .mcp-setup-page { padding: 0 18px 40px; }
-  .mcp-account-card, .mcp-integration-callout, .mcp-test-prompt { grid-template-columns: 1fr; align-items: start; }
-  .mcp-scope-grid { grid-template-columns: 1fr; }
-  .mcp-command-block { grid-template-columns: 1fr; }
-  .mcp-command-block > button { justify-self: start; }
+  .mcp-simple-hero { padding-top: 48px; }
+  .mcp-install-card, .mcp-integration-callout, .mcp-test-prompt, .mcp-direct-card, .mcp-url-block { grid-template-columns: 1fr; align-items: start; }
+  .mcp-install-card > button, .mcp-test-prompt > button, .mcp-url-block > button { justify-self: start; }
   .mcp-setup-footer { align-items: flex-start; flex-direction: column; }
   .modal-actions { flex-direction: column-reverse; }
 }

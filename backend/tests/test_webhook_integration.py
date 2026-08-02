@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from random import Random
@@ -7,11 +8,15 @@ from uuid import UUID
 
 from cryptography.fernet import Fernet
 from httpx import AsyncClient
+from mcp import Client
 from sqlalchemy import func, select, update
 
 from app.db.session import AsyncSessionFactory
 from app.main import app
+from app.mcp import server as mcp_server
+from app.mcp.oauth import use_oauth_principal
 from app.models.webhook import DeliveryStatus, WebhookDelivery, WebhookEndpoint
+from app.services.api_clients import SUBMISSIONS_APPROVE_SCOPE, SUBMISSIONS_READ_SCOPE
 from app.services.webhooks import (
     ENCRYPTED_WEBHOOK_URL,
     ResolvedWebhookDestination,
@@ -22,6 +27,7 @@ from app.services.webhooks import (
     process_next_webhook_delivery,
     webhook_signature,
 )
+from tests.test_mcp_create_task import issue_client
 from tests.test_submissions import claimed_work, submit, url_proof, verify
 
 
@@ -200,6 +206,54 @@ async def test_http_configuration_events_signing_and_worker_delivery(
         assert signing_secret.encode() not in endpoint.secret_ciphertext
         assert b"capability-token" not in endpoint.secret_ciphertext
         assert b"query-secret" not in endpoint.secret_ciphertext
+
+
+async def test_mcp_can_configure_read_and_deliver_all_webhook_events(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    creator_id, freelancer_id, claim_id = await claimed_work(client, "mcp-webhook-e2e")
+    transport = RecordingTransport(WebhookHTTPResponse(status_code=204))
+    runtime = webhook_runtime(transport)
+    monkeypatch.setattr(mcp_server, "webhook_runtime_from_settings", lambda: runtime)
+    _, principal = await issue_client(
+        creator_id,
+        scopes={SUBMISSIONS_READ_SCOPE, SUBMISSIONS_APPROVE_SCOPE},
+    )
+
+    with use_oauth_principal(principal):
+        async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
+            configured = await mcp_client.call_tool(
+                "configure_webhook",
+                {"url": CAPABILITY_URL},
+            )
+            read = await mcp_client.call_tool("get_webhook", {})
+
+    assert not configured.is_error
+    assert configured.structured_content["url"] == CAPABILITY_URL
+    assert configured.structured_content["signing_secret"].startswith("whsec_")
+    assert configured.structured_content["subscribed_events"] == [
+        "mcp_request.completed",
+        "payment.failed",
+        "payment.succeeded",
+        "submission.created",
+        "verification.completed",
+    ]
+    assert "signing_secret" not in read.structured_content
+    assert read.structured_content["url"] == CAPABILITY_URL
+
+    submitted = await submit(client, claim_id, freelancer_id, [url_proof()])
+    assert submitted.status_code == 201, submitted.text
+    assert await process_next_webhook_delivery(
+        AsyncSessionFactory,
+        runtime=runtime,
+        clock=FixedClock(datetime.now(UTC)),
+        random_source=Random(0),
+    )
+    assert len(transport.calls) == 1
+    _, headers, body = transport.calls[0]
+    assert headers["X-HAH-Event-Type"] == "submission.created"
+    assert json.loads(body)["data"]["submission_id"] == submitted.json()["id"]
 
 
 async def test_retryable_failures_exhaust_without_leaking_response(

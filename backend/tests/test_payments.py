@@ -20,7 +20,14 @@ from app.models.claim import BountyClaim, ClaimStatus
 from app.models.payment import Payment, PaymentAttempt, WalletEntry
 from app.models.task import Bounty
 from app.services import submissions as submission_service
-from app.services.api_clients import PAYMENTS_READ_SCOPE, PAYMENTS_WRITE_SCOPE
+from app.services.api_clients import (
+    PAYMENTS_READ_SCOPE,
+    PAYMENTS_WRITE_SCOPE,
+    SUBMISSIONS_APPROVE_SCOPE,
+    SUBMISSIONS_READ_SCOPE,
+    SUBMISSIONS_VERIFY_SCOPE,
+    TASKS_CREATE_SCOPE,
+)
 from app.services.payments import (
     HTTPPravaGateway,
     PaymentRuntime,
@@ -39,7 +46,7 @@ from tests.test_marketplace import (
     create_open_task,
     create_user,
 )
-from tests.test_mcp_create_task import issue_client
+from tests.test_mcp_create_task import issue_client, mcp_arguments
 from tests.test_submissions import claimed_work, submit, url_proof, verify
 from tests.test_tasks import task_payload
 
@@ -788,6 +795,146 @@ async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
     assert freelancer_wallet.structured_content["balances"] == [
         {"currency": "USD", "balance_minor": 1_000}
     ]
+
+
+async def test_mcp_agent_can_publish_monitor_pay_and_reuse_human_allowance(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    creator_id = await create_user(
+        client,
+        email="mcp-agent-creator@example.com",
+        can_create_tasks=True,
+        can_work_tasks=False,
+    )
+    freelancer_id = await create_user(
+        client,
+        email="mcp-agent-worker@example.com",
+    )
+    social_account_id = await add_social_account(freelancer_id)
+    gateway = FakePravaGateway()
+    runtime = payment_runtime(gateway)
+    monkeypatch.setattr(mcp_server, "payment_runtime_from_settings", lambda: runtime)
+    monkeypatch.setattr(
+        submission_service,
+        "get_settings",
+        lambda: SimpleNamespace(prava_payment_automation_enabled=True),
+    )
+    _, principal = await issue_client(
+        creator_id,
+        scopes={
+            TASKS_CREATE_SCOPE,
+            SUBMISSIONS_READ_SCOPE,
+            SUBMISSIONS_VERIFY_SCOPE,
+            SUBMISSIONS_APPROVE_SCOPE,
+            PAYMENTS_READ_SCOPE,
+            PAYMENTS_WRITE_SCOPE,
+        },
+    )
+    first_arguments = mcp_arguments(
+        idempotency_key="agent-flow-first",
+        title="First MCP funded task",
+        total_budget_minor=1_000,
+        bounties=[bounty_payload("First MCP bounty")],
+    )
+
+    with use_oauth_principal(principal):
+        async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
+            created = await mcp_client.call_tool("create_task", first_arguments)
+            first_publish = await mcp_client.call_tool(
+                "publish_task",
+                {"task_id": created.structured_content["id"]},
+            )
+            approved_publish = await mcp_client.call_tool(
+                "publish_task",
+                {"task_id": created.structured_content["id"]},
+            )
+            repeated_publish = await mcp_client.call_tool(
+                "publish_task",
+                {"task_id": created.structured_content["id"]},
+            )
+            listed = await mcp_client.call_tool("list_tasks", {})
+
+    assert not first_publish.is_error
+    assert first_publish.structured_content["ready"] is False
+    assert first_publish.structured_content["human_approval_required"] is True
+    assert first_publish.structured_content["next_action"] == (
+        "open_approval_url_then_call_publish_task_again"
+    )
+    assert first_publish.structured_content["payment_authorization"]["approval_url"] == (
+        "https://sandbox.collect.prava.space/approve-demo"
+    )
+    assert approved_publish.structured_content["ready"] is True
+    assert approved_publish.structured_content["task"]["status"] == "open"
+    assert approved_publish.structured_content["next_action"] == "task_open"
+    assert repeated_publish.structured_content == approved_publish.structured_content
+    assert [task["id"] for task in listed.structured_content["result"]] == [
+        created.structured_content["id"]
+    ]
+
+    task_id = UUID(created.structured_content["id"])
+    bounty_id = UUID(created.structured_content["bounties"][0]["id"])
+    claimed = await claim(client, bounty_id, freelancer_id, social_account_id)
+    assert claimed.status_code == 201, claimed.text
+    claim_id = UUID(claimed.json()["id"])
+    submitted = await submit(client, claim_id, freelancer_id, [url_proof()])
+    assert submitted.status_code == 201, submitted.text
+    submission_id = submitted.json()["id"]
+
+    with use_oauth_principal(principal):
+        async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
+            before_verification = await mcp_client.call_tool(
+                "list_task_submissions",
+                {"task_id": str(task_id)},
+            )
+            verified = await mcp_client.call_tool(
+                "verify_submission",
+                {
+                    "idempotency_key": "agent-flow-verify",
+                    "submission_id": submission_id,
+                    "result": "passed",
+                    "checks": {"proof": "accepted"},
+                },
+            )
+
+    assert before_verification.structured_content["result"][0]["id"] == submission_id
+    assert before_verification.structured_content["result"][0]["verification_status"] == (
+        "pending"
+    )
+    assert verified.structured_content["verification_status"] == "passed"
+    assert await process_next_payment(AsyncSessionFactory, runtime=runtime) is True
+
+    second_arguments = mcp_arguments(
+        idempotency_key="agent-flow-second",
+        title="Second MCP funded task",
+        total_budget_minor=1_000,
+        bounties=[bounty_payload("Second MCP bounty")],
+    )
+    with use_oauth_principal(principal):
+        async with Client(app.state.mcp_server, raise_exceptions=True) as mcp_client:
+            payments = await mcp_client.call_tool(
+                "list_task_payment_statuses",
+                {"task_id": str(task_id)},
+            )
+            authorization = await mcp_client.call_tool(
+                "get_task_payment_authorization_status",
+                {"task_id": str(task_id)},
+            )
+            second_created = await mcp_client.call_tool("create_task", second_arguments)
+            second_publish = await mcp_client.call_tool(
+                "publish_task",
+                {"task_id": second_created.structured_content["id"]},
+            )
+
+    assert payments.structured_content["result"][0]["status"] == "succeeded"
+    assert payments.structured_content["result"][0]["submission_id"] == submission_id
+    assert authorization.structured_content["status"] == "active"
+    assert second_publish.structured_content["ready"] is True
+    assert second_publish.structured_content["task"]["status"] == "open"
+    assert (
+        second_publish.structured_content["payment_authorization"]["reused_global_approval"] is True
+    )
+    assert gateway.created_customers == ["universal-hackathon-payer"]
 
 
 async def test_prava_authorized_draft_cannot_change_or_delete_its_budget(
