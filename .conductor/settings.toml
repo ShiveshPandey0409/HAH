@@ -1,0 +1,29 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "cd backend && uv sync --all-groups && cd ../frontend && bun install"
+run_mode = "nonconcurrent"
+
+[scripts.run.app]
+available_in = [ "local" ]
+command = "cd frontend && API_PORT=$CONDUCTOR_PORT WEB_PORT=$((CONDUCTOR_PORT + 1)) VITE_PROXY_TARGET=http://127.0.0.1:$CONDUCTOR_PORT bun run dev"
+default = true
+icon = "play"
+
+[scripts.run.frontend]
+available_in = [ "local" ]
+command = "cd frontend && VITE_PROXY_TARGET=http://127.0.0.1:$CONDUCTOR_PORT bun run dev:frontend -- --host 127.0.0.1 --port $((CONDUCTOR_PORT + 1))"
+icon = "panels-top-left"
+
+[scripts.run.backend]
+available_in = [ "local" ]
+command = "cd frontend && API_PORT=$CONDUCTOR_PORT bun run dev:backend"
+icon = "server"
+
+[scripts.run.lint]
+command = "cd frontend && bun run lint"
+icon = "list-checks"
+
+[scripts.run.build]
+command = "cd frontend && bun run build"
+icon = "hammer"
