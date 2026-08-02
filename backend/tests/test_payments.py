@@ -48,6 +48,7 @@ class FakePravaGateway:
     def __init__(self) -> None:
         self.created_customers: list[str] = []
         self.created_amounts: list[str] = []
+        self.charge_amounts: list[str] = []
         self.charge_references: list[str] = []
         self.revoked_sessions: list[str] = []
         self.revoke_failures: list[PravaGatewayError] = []
@@ -84,6 +85,7 @@ class FakePravaGateway:
             raise self.revoke_failures.pop(0)
 
     async def execute_sandbox_payment(self, **kwargs) -> PravaPaymentResult:
+        self.charge_amounts.append(kwargs["amount"])
         self.charge_references.append(kwargs["reference"])
         if self.failures:
             raise self.failures.pop(0)
@@ -213,7 +215,7 @@ async def _authorize_task(
     creator_id: UUID,
     runtime: PaymentRuntime,
     monkeypatch,
-) -> None:
+) -> dict:
     monkeypatch.setattr(payment_routes, "runtime_from_settings", lambda: runtime)
     started = await client.post(
         f"/v1/tasks/{task_id}/payment-authorization",
@@ -232,6 +234,7 @@ async def _authorize_task(
     assert refreshed.json()["provider_authorization_ref"].startswith("mdt_hah_test_")
     assert refreshed.json()["funding_status"] == "created"
     assert refreshed.json()["approval_url"] is None
+    return refreshed.json()
 
 
 async def test_prava_authorization_is_owned_and_never_returns_card_data(
@@ -329,7 +332,7 @@ async def test_verified_submission_auto_pays_once_and_credits_internal_wallet(
     task_id = await _task_id_for_claim(claim_id)
     gateway = FakePravaGateway()
     runtime = payment_runtime(gateway)
-    await _authorize_task(
+    authorization = await _authorize_task(
         client,
         task_id=task_id,
         creator_id=creator_id,
@@ -395,7 +398,10 @@ async def test_verified_submission_auto_pays_once_and_credits_internal_wallet(
         checks={"proof_reviewed": True},
     )
     assert replay.status_code == 200, replay.text
-    assert gateway.charge_references == [f"hah-task-funding:{task_id}"]
+    assert gateway.charge_references == [
+        f"hah-pool-funding:{authorization['pool_id']}"
+    ]
+    assert gateway.charge_amounts == ["50.00"]
 
     async with AsyncSessionFactory() as session:
         claim_row = await session.get(BountyClaim, claim_id)
@@ -485,7 +491,7 @@ async def test_one_prava_task_funding_charge_backs_multiple_verified_wallet_cred
     bounty_id = bounty_ids_by_title(task)["Two-person reward"]
     gateway = FakePravaGateway()
     runtime = payment_runtime(gateway)
-    await _authorize_task(
+    authorization = await _authorize_task(
         client,
         task_id=task_id,
         creator_id=creator_id,
@@ -521,7 +527,20 @@ async def test_one_prava_task_funding_charge_backs_multiple_verified_wallet_cred
     assert await process_next_payment(AsyncSessionFactory, runtime=runtime) is True
     assert await process_next_payment(AsyncSessionFactory, runtime=runtime) is True
     assert await process_next_payment(AsyncSessionFactory, runtime=runtime) is False
-    assert gateway.charge_references == [f"hah-task-funding:{task_id}"]
+    assert gateway.charge_references == [
+        f"hah-pool-funding:{authorization['pool_id']}"
+    ]
+    assert gateway.charge_amounts == ["50.00"]
+
+    funded_authorization = await client.get(
+        f"/v1/tasks/{task_id}/payment-authorization",
+        headers=client.auth_headers(creator_id),
+    )
+    assert funded_authorization.status_code == 200
+    assert funded_authorization.json()["pool_funded_once"] is True
+    assert funded_authorization.json()["funding_status"] == "succeeded"
+    assert funded_authorization.json()["used_minor"] == 2_000
+    assert funded_authorization.json()["payments_used"] == 2
 
     for worker_id, _ in workers:
         wallet = await client.get(

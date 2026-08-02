@@ -19,6 +19,7 @@ class PaymentAuthorizationResponse(BaseModel):
     per_payment_cap_minor: int = Field(gt=0)
     total_cap_minor: int = Field(gt=0)
     pool_cap_minor: int = Field(gt=0)
+    pool_funded_once: bool
     pool_allocated_minor: int = Field(ge=0)
     pool_available_minor: int = Field(ge=0)
     used_minor: int = Field(ge=0)

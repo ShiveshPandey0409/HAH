@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -89,6 +90,11 @@ class PaymentAuthorization(Base):
         server_default=text("gen_random_uuid()"),
     )
     pool_cap_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    pool_funded_once: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
     provider: Mapped[str] = mapped_column(
         Text,
         nullable=False,

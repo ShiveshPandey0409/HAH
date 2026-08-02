@@ -548,6 +548,7 @@ async def _authorization_response(
         per_payment_cap_minor=authorization.per_payment_cap_minor,
         total_cap_minor=authorization.total_cap_minor,
         pool_cap_minor=authorization.pool_cap_minor,
+        pool_funded_once=authorization.pool_funded_once,
         pool_allocated_minor=pool_allocated_minor,
         pool_available_minor=max(authorization.pool_cap_minor - pool_allocated_minor, 0),
         used_minor=authorization.used_minor,
@@ -691,6 +692,10 @@ async def _find_reusable_pool(
     candidates: list[tuple[int, datetime, list[PaymentAuthorization]]] = []
     for pool_rows in _group_authorizations_by_pool(authorizations).values():
         representative = pool_rows[0]
+        pool_funded_once = all(row.pool_funded_once for row in pool_rows)
+        has_legacy_or_inflight_funding = any(
+            row.funding_status != PaymentStatus.CREATED for row in pool_rows
+        )
         allocated_minor = sum(row.total_cap_minor for row in pool_rows)
         available_minor = representative.pool_cap_minor - allocated_minor
         valid_until = next((row.valid_until for row in pool_rows if row.valid_until), None)
@@ -702,6 +707,7 @@ async def _find_reusable_pool(
             available_minor >= required_minor
             and mandate_id is not None
             and (valid_until is None or valid_until > now)
+            and (pool_funded_once or not has_legacy_or_inflight_funding)
         ):
             candidates.append((available_minor, representative.created_at, pool_rows))
     if not candidates:
@@ -773,6 +779,7 @@ async def start_task_payment_authorization(
     )
     if reusable_pool is not None:
         representative = reusable_pool[0]
+        pool_funded_once = all(row.pool_funded_once for row in reusable_pool)
         mandate_id = next(
             row.provider_authorization_ref
             for row in reusable_pool
@@ -782,16 +789,23 @@ async def start_task_payment_authorization(
         reused_values = {
             "pool_id": representative.pool_id,
             "pool_cap_minor": representative.pool_cap_minor,
+            "pool_funded_once": pool_funded_once,
             "provider_customer_ref": representative.provider_customer_ref,
             "provider_session_ref": None,
             "provider_session_expires_at": None,
             "provider_authorization_ref": mandate_id,
-            "funding_status": PaymentStatus.CREATED,
+            "funding_status": (
+                PaymentStatus.SUCCEEDED if pool_funded_once else PaymentStatus.CREATED
+            ),
             "funding_idempotency_key": f"hah-task-funding:{task.id}",
             "provider_funding_transaction_ref": None,
             "funding_failure_code": None,
             "funding_failure_message": None,
-            "funded_at": None,
+            "funded_at": (
+                next((row.funded_at for row in reusable_pool if row.funded_at), None)
+                if pool_funded_once
+                else None
+            ),
             "status": AuthorizationStatus.ACTIVE,
             "valid_until": valid_until,
             **common_values,
@@ -831,6 +845,7 @@ async def start_task_payment_authorization(
             creator_id=creator_id,
             pool_id=uuid4(),
             pool_cap_minor=pool_cap_minor,
+            pool_funded_once=False,
             provider="prava",
             provider_customer_ref=customer_ref,
             provider_session_ref=provider_session.session_id,
@@ -844,6 +859,7 @@ async def start_task_payment_authorization(
     else:
         authorization.pool_id = uuid4()
         authorization.pool_cap_minor = pool_cap_minor
+        authorization.pool_funded_once = False
         authorization.provider_customer_ref = customer_ref
         authorization.provider_session_ref = provider_session.session_id
         authorization.provider_session_expires_at = provider_session.expires_at
@@ -949,6 +965,7 @@ async def restart_task_payment_authorization(
         row.provider_session_expires_at = provider_session.expires_at
         row.provider_authorization_ref = None
         row.status = AuthorizationStatus.PENDING
+        row.pool_funded_once = False
         row.valid_until = None
     authorization.provider_session_ref = provider_session.session_id
     await session.flush()
@@ -1044,7 +1061,7 @@ async def refresh_task_payment_authorization(
             row.provider_authorization_ref = mandate.mandate_id
             row.valid_until = mandate.valid_until
             row.status = pool_status
-            if mandate.status == "active":
+            if mandate.status == "active" and not row.pool_funded_once:
                 row.funding_status = PaymentStatus.CREATED
     elif (
         authorization.provider_session_expires_at is not None
@@ -1277,15 +1294,21 @@ async def retry_payment(
         raise PaymentNotFoundError("Payment not found")
     if payment.status != PaymentStatus.FAILED:
         raise PaymentConflictError("Only a failed payment can be retried")
-    authorization = await session.get(PaymentAuthorization, payment.authorization_id)
+    authorization = await session.scalar(
+        select(PaymentAuthorization)
+        .where(PaymentAuthorization.id == payment.authorization_id)
+        .with_for_update()
+    )
     if authorization is None or authorization.status != AuthorizationStatus.ACTIVE:
         raise PaymentAuthorizationRequiredError("Prava payment authorization is not active")
     if authorization.provider_authorization_ref is None:
         raise PaymentAuthorizationRequiredError("Task has no approved Prava mandate")
-    if authorization.funding_status == PaymentStatus.FAILED:
-        authorization.funding_status = PaymentStatus.CREATED
-        authorization.funding_failure_code = None
-        authorization.funding_failure_message = None
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
+    if not all(row.pool_funded_once for row in pool_rows):
+        for row in pool_rows:
+            row.funding_status = PaymentStatus.CREATED
+            row.funding_failure_code = None
+            row.funding_failure_message = None
     payment.status = PaymentStatus.CREATED
     payment.failure_code = None
     payment.failure_message = None
@@ -1356,23 +1379,50 @@ async def _lease_next_payment(
         payment.completed_at = now
         await session.commit()
         return None
-    if authorization.funding_status == PaymentStatus.FAILED:
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
+    pool_funded_once = all(row.pool_funded_once for row in pool_rows)
+    if any(row.pool_funded_once for row in pool_rows) and not pool_funded_once:
         payment.status = PaymentStatus.FAILED
-        payment.failure_code = authorization.funding_failure_code or "task_funding_failed"
-        payment.failure_message = "Prava task-budget funding failed"
+        payment.failure_code = "payment_pool_configuration_invalid"
+        payment.failure_message = "Payment allowance pool funding state is inconsistent"
         payment.next_attempt_at = None
         payment.completed_at = now
         await _enqueue_payment_webhook(session, payment, event_type="payment.failed")
         await session.commit()
         return None
-    if (
-        authorization.funding_status == PaymentStatus.PROCESSING
-        and payment.status == PaymentStatus.CREATED
+    if not pool_funded_once and any(
+        row.funding_status == PaymentStatus.SUCCEEDED for row in pool_rows
+    ):
+        payment.status = PaymentStatus.FAILED
+        payment.failure_code = "payment_pool_requires_new_approval"
+        payment.failure_message = "Legacy partial allowance requires a new approval"
+        payment.next_attempt_at = None
+        payment.completed_at = now
+        await _enqueue_payment_webhook(session, payment, event_type="payment.failed")
+        await session.commit()
+        return None
+    if not pool_funded_once and any(
+        row.funding_status == PaymentStatus.FAILED for row in pool_rows
+    ):
+        payment.status = PaymentStatus.FAILED
+        failed_row = next(
+            row for row in pool_rows if row.funding_status == PaymentStatus.FAILED
+        )
+        payment.failure_code = failed_row.funding_failure_code or "allowance_funding_failed"
+        payment.failure_message = "Prava allowance funding failed"
+        payment.next_attempt_at = None
+        payment.completed_at = now
+        await _enqueue_payment_webhook(session, payment, event_type="payment.failed")
+        await session.commit()
+        return None
+    if not pool_funded_once and any(
+        row.funding_status == PaymentStatus.PROCESSING for row in pool_rows
     ):
         await session.rollback()
         return None
 
-    requires_prava_funding = authorization.funding_status != PaymentStatus.SUCCEEDED
+    requires_prava_funding = not pool_funded_once
+    funding_idempotency_key = f"hah-pool-funding:{authorization.pool_id}"
 
     attempt_number = (
         await session.scalar(
@@ -1388,11 +1438,11 @@ async def _lease_next_payment(
         status=PaymentStatus.PROCESSING,
         request_data=(
             {
-                "operation": "fund_task_budget_and_credit_worker",
-                "task_budget_minor": authorization.total_cap_minor,
+                "operation": "fund_global_allowance_and_credit_worker",
+                "allowance_minor": authorization.pool_cap_minor,
                 "reward_minor": payment.amount_minor,
                 "currency": payment.currency.strip(),
-                "reference": authorization.funding_idempotency_key,
+                "reference": funding_idempotency_key,
             }
             if requires_prava_funding
             else {
@@ -1405,9 +1455,10 @@ async def _lease_next_payment(
     )
     session.add(attempt)
     if requires_prava_funding:
-        authorization.funding_status = PaymentStatus.PROCESSING
-        authorization.funding_failure_code = None
-        authorization.funding_failure_message = None
+        for row in pool_rows:
+            row.funding_status = PaymentStatus.PROCESSING
+            row.funding_failure_code = None
+            row.funding_failure_message = None
     payment.status = PaymentStatus.PROCESSING
     payment.next_attempt_at = None
     payment.failure_code = None
@@ -1417,9 +1468,9 @@ async def _lease_next_payment(
         payment_id=payment.id,
         authorization_id=authorization.id,
         mandate_id=authorization.provider_authorization_ref,
-        funding_amount_minor=authorization.total_cap_minor,
+        funding_amount_minor=authorization.pool_cap_minor,
         currency=authorization.currency.strip(),
-        funding_idempotency_key=authorization.funding_idempotency_key,
+        funding_idempotency_key=funding_idempotency_key,
         attempt_number=attempt_number,
         requires_prava_funding=requires_prava_funding,
     )
@@ -1484,18 +1535,21 @@ async def _finalize_payment_success(
     if authorization is None:
         await session.rollback()
         return
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
     now = datetime.now(UTC)
-    if result is None and authorization.funding_status != PaymentStatus.SUCCEEDED:
+    if result is None and not all(row.pool_funded_once for row in pool_rows):
         await session.rollback()
         return
     if result is not None:
-        authorization.funding_status = PaymentStatus.SUCCEEDED
+        for row in pool_rows:
+            row.pool_funded_once = True
+            row.funding_status = PaymentStatus.SUCCEEDED
+            row.funding_failure_code = None
+            row.funding_failure_message = None
+            row.funded_at = now
         authorization.provider_funding_transaction_ref = result.transaction_id
-        authorization.funding_failure_code = None
-        authorization.funding_failure_message = None
-        authorization.funded_at = now
-        # The database trigger validates funding before accepting payment success.
-        # Flush the task funding state first instead of relying on ORM update order.
+        # The database trigger validates funding before accepting payment success;
+        # flush the shared pool state first instead of relying on ORM update order.
         await session.flush()
     payment.status = PaymentStatus.SUCCEEDED
     payment.provider_transaction_ref = result.transaction_id if result is not None else None
@@ -1508,7 +1562,7 @@ async def _finalize_payment_success(
     attempt.response_data = (
         {
             "status": result.status,
-            "operation": "fund_task_budget_and_credit_worker",
+            "operation": "fund_global_allowance_and_credit_worker",
             "order_id": result.order_id,
             "deduplicated": result.deduplicated,
             "visa_confirmation": result.visa_confirmation,
@@ -1554,6 +1608,7 @@ async def _finalize_payment_failure(
     ):
         await session.rollback()
         return
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
 
     now = datetime.now(UTC)
     error_code = error.code.lower()
@@ -1573,18 +1628,20 @@ async def _finalize_payment_failure(
             policy.retry_base_seconds * (2 ** (lease.attempt_number - 1)),
             policy.retry_cap_seconds,
         )
-        authorization.funding_status = PaymentStatus.CREATED
-        authorization.funding_failure_code = error_code
-        authorization.funding_failure_message = "Prava sandbox charge will be retried"
+        for row in pool_rows:
+            row.funding_status = PaymentStatus.CREATED
+            row.funding_failure_code = error_code
+            row.funding_failure_message = "Prava sandbox allowance charge will be retried"
         payment.status = PaymentStatus.CREATED
         payment.failure_code = error_code
         payment.failure_message = "Prava sandbox charge will be retried"
         payment.next_attempt_at = now + timedelta(seconds=delay)
         payment.completed_at = None
     else:
-        authorization.funding_status = PaymentStatus.FAILED
-        authorization.funding_failure_code = error_code
-        authorization.funding_failure_message = "Prava sandbox task-budget charge failed"
+        for row in pool_rows:
+            row.funding_status = PaymentStatus.FAILED
+            row.funding_failure_code = error_code
+            row.funding_failure_message = "Prava sandbox allowance charge failed"
         payment.status = PaymentStatus.FAILED
         payment.failure_code = error_code
         payment.failure_message = "Prava sandbox task-budget charge failed"

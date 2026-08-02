@@ -300,10 +300,12 @@ reservations—it is not presented as an HAH or creator wallet.
 
 The response includes task, pool, and global approved/allocated/available amounts.
 PostgreSQL serializes reservations and rejects any allocation beyond the pool cap.
-The first passed submission
-schedules one idempotent Prava sandbox charge for that task budget. After it succeeds,
-the first and all later verified rewards are append-only credits in the correct
-freelancer wallet. This is intentional:
+The first passed submission schedules one idempotent Prava sandbox charge for the
+entire approved allowance pool. After it succeeds, that pool is marked funded once
+and every verified reward is an append-only deduction from the reserved task budget
+and a credit in the correct freelancer wallet. A bounty with multiple slots therefore
+credits each verified worker separately (`reward_minor` per slot) without charging
+Prava or requesting card/OTP approval again. This is intentional:
 Prava recurring mandates allow one external charge per cycle, while a task may have
 many bounties and slots. It also matches the hackathon model where HAH receives the
 test funding and only task completers receive internal wallet balances.
