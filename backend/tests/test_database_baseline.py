@@ -41,7 +41,7 @@ async def test_sql_baseline_is_upgraded_to_alembic_head() -> None:
     finally:
         await engine.dispose()
 
-    assert revision == "20260802_0010"
+    assert revision == "20260802_0012"
 
 
 async def test_first_party_oauth_rows_block_lossy_downgrade(client: AsyncClient) -> None:
@@ -66,7 +66,7 @@ async def test_first_party_oauth_rows_block_lossy_downgrade(client: AsyncClient)
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    assert revision == "20260802_0010"
+    assert revision == "20260802_0012"
 
 
 async def test_legacy_mcp_actor_and_scopes_are_backfilled_on_upgrade() -> None:
@@ -182,7 +182,7 @@ async def test_oauth_rows_block_lossy_downgrade() -> None:
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    assert revision == "20260802_0010"
+    assert revision == "20260802_0012"
 
 
 async def test_http_auth_rows_block_lossy_downgrade(client: AsyncClient) -> None:
@@ -208,7 +208,7 @@ async def test_http_auth_rows_block_lossy_downgrade(client: AsyncClient) -> None
             revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
     finally:
         await engine.dispose()
-    assert revision == "20260802_0010"
+    assert revision == "20260802_0012"
 
 
 async def test_legacy_webhook_destination_is_disabled_and_scrubbed_on_upgrade() -> None:

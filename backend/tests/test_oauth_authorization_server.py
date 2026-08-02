@@ -260,9 +260,7 @@ async def test_pkce_target_and_consent_fail_closed(client: AsyncClient) -> None:
         follow_redirects=False,
     )
     assert bad_pkce.status_code == 302
-    assert parse_qs(urlparse(bad_pkce.headers["location"]).query)["error"] == [
-        "invalid_request"
-    ]
+    assert parse_qs(urlparse(bad_pkce.headers["location"]).query)["error"] == ["invalid_request"]
 
     bad_target = await client.get(
         "/authorize",
@@ -278,9 +276,7 @@ async def test_pkce_target_and_consent_fail_closed(client: AsyncClient) -> None:
         follow_redirects=False,
     )
     assert bad_target.status_code == 302
-    assert parse_qs(urlparse(bad_target.headers["location"]).query)["error"] == [
-        "invalid_target"
-    ]
+    assert parse_qs(urlparse(bad_target.headers["location"]).query)["error"] == ["invalid_target"]
 
     invalid_consent = await client.get(
         "/oauth/consent",

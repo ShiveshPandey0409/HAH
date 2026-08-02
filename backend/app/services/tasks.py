@@ -306,9 +306,7 @@ async def replace_task(
     if await session.scalar(
         select(PaymentAuthorization.id).where(PaymentAuthorization.task_id == task.id)
     ):
-        raise TaskStateConflictError(
-            "a task with a Prava budget authorization cannot be replaced"
-        )
+        raise TaskStateConflictError("a task with a Prava budget authorization cannot be replaced")
 
     try:
         await session.execute(delete(Bounty).where(Bounty.task_id == task.id))
@@ -368,9 +366,7 @@ async def delete_task(
     if await session.scalar(
         select(PaymentAuthorization.id).where(PaymentAuthorization.task_id == task.id)
     ):
-        raise TaskStateConflictError(
-            "a task with a Prava budget authorization cannot be deleted"
-        )
+        raise TaskStateConflictError("a task with a Prava budget authorization cannot be deleted")
     try:
         await session.delete(task)
         await session.commit()

@@ -197,6 +197,25 @@ async def test_submission_requires_owner_complete_strict_proofs(client: AsyncCli
     assert image_read.content == PNG_PROOF
     assert image_read.headers["content-type"] == "image/png"
 
+    work_history = await client.get(
+        f"/v1/freelancers/{freelancer_id}/claims",
+        headers=client.auth_headers(freelancer_id),
+    )
+    assert work_history.status_code == 200, work_history.text
+    assert len(work_history.json()) == 1
+    work = work_history.json()[0]
+    assert work["id"] == str(claim_id)
+    assert work["task_title"] == "Marketplace campaign"
+    assert work["bounty_title"] == "Submission bounty strict"
+    assert work["proof_requirements"] == ["url", "screenshot"]
+    assert work["submission"]["id"] == body["id"]
+
+    forbidden_history = await client.get(
+        f"/v1/freelancers/{freelancer_id}/claims",
+        headers=client.auth_headers(creator_id),
+    )
+    assert forbidden_history.status_code == 403
+
     async with AsyncSessionFactory() as session:
         assert await session.scalar(select(func.count()).select_from(Submission)) == 1
         assert await session.scalar(select(func.count()).select_from(SubmissionProof)) == 2

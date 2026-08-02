@@ -13,10 +13,15 @@ class PaymentAuthorizationResponse(BaseModel):
 
     id: UUID
     task_id: UUID
+    pool_id: UUID
     provider: str
     status: AuthorizationStatus
     per_payment_cap_minor: int = Field(gt=0)
     total_cap_minor: int = Field(gt=0)
+    pool_cap_minor: int = Field(gt=0)
+    pool_funded_once: bool
+    pool_allocated_minor: int = Field(ge=0)
+    pool_available_minor: int = Field(ge=0)
     used_minor: int = Field(ge=0)
     max_payments: int | None = Field(default=None, gt=0)
     payments_used: int = Field(ge=0)
@@ -32,11 +37,28 @@ class PaymentAuthorizationResponse(BaseModel):
     other_tasks_blocked_minor: int = Field(ge=0)
     total_creator_blocked_minor: int = Field(ge=0)
     additional_approval_required_minor: int = Field(ge=0)
+    global_approved_minor: int = Field(ge=0)
+    global_allocated_minor: int = Field(ge=0)
+    global_available_minor: int = Field(ge=0)
+    global_pending_approval_minor: int = Field(ge=0)
+    reused_global_approval: bool
     approval_url: AnyHttpUrl | None = None
     approval_expires_at: datetime | None = None
     valid_until: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class GlobalPaymentAllowanceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    currency: str
+    approved_minor: int = Field(ge=0)
+    allocated_minor: int = Field(ge=0)
+    available_minor: int = Field(ge=0)
+    pending_approval_minor: int = Field(ge=0)
+    active_pool_count: int = Field(ge=0)
+    pending_pool_count: int = Field(ge=0)
 
 
 class PaymentResponse(BaseModel):

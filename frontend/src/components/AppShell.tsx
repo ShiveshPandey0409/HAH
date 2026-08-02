@@ -88,9 +88,11 @@ export function AppShell() {
               <CaretDown />
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
-              <DropdownMenu.Label>{user.email}</DropdownMenu.Label>
-              <DropdownMenu.LinkItem href="/app/settings" icon={Gear}>Account settings</DropdownMenu.LinkItem>
-              <DropdownMenu.LinkItem href="/app/settings#password" icon={Key}>Change password</DropdownMenu.LinkItem>
+              <DropdownMenu.Group>
+                <DropdownMenu.Label>{user.email}</DropdownMenu.Label>
+                <DropdownMenu.LinkItem href="/app/settings" icon={Gear}>Account settings</DropdownMenu.LinkItem>
+                <DropdownMenu.LinkItem href="/app/settings#password" icon={Key}>Change password</DropdownMenu.LinkItem>
+              </DropdownMenu.Group>
               <DropdownMenu.Separator />
               <DropdownMenu.Item icon={SignOut} variant="danger" onClick={handleLogout}>Log out</DropdownMenu.Item>
             </DropdownMenu.Content>

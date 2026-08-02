@@ -253,6 +253,8 @@ PRAVA_MERCHANT_NAME=Hire a Human
 PRAVA_MERCHANT_URL=https://hah-api-prava.onrender.com
 PRAVA_MERCHANT_COUNTRY=IN
 PRAVA_SETTLEMENT_MODE=prava_sandbox
+PRAVA_GLOBAL_ALLOWANCE_MINOR=5000
+PRAVA_GLOBAL_MAX_CHARGES=30
 ```
 
 Keep `PRAVA_SECRET_KEY` on the server. The shared sandbox card is entered only on the
@@ -262,18 +264,22 @@ the database, logs, tests, or screenshots committed to Git.
 The API sequence for a logged-in task creator is:
 
 ```bash
-# 1. Create a task, then start its task-budget authorization.
+# 1. Create a task, then reserve its budget from the shared HAH allowance.
 curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization" \
   -H "Authorization: Bearer $CREATOR_TOKEN"
 
-# 2. Open approval_url from the response and approve on Prava's hosted page.
-# Open it only once, in Chrome/Safari or another passkey-capable full browser.
+# 2. approval_url is null when an existing allowance covers the task. If it is
+# present, open it once to approve the initial allowance or a required top-up.
 # If a consumed or failed session must be replaced:
 curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization/restart" \
   -H "Authorization: Bearer $CREATOR_TOKEN"
 
 # 3. Refresh until status is active.
 curl -X POST "$API/v1/tasks/$TASK_ID/payment-authorization/refresh" \
+  -H "Authorization: Bearer $CREATOR_TOKEN"
+
+# Inspect the shared approved, allocated, available, and pending amounts.
+curl "$API/v1/payments/global-allowance?currency=USD" \
   -H "Authorization: Bearer $CREATOR_TOKEN"
 
 # 4. After an approved proof, inspect the logical reward and worker result.
@@ -284,13 +290,22 @@ curl "$API/v1/submissions/$SUBMISSION_ID/payment" \
 curl "$API/v1/wallet" -H "Authorization: Bearer $FREELANCER_TOKEN"
 ```
 
-`POST .../payment-authorization` asks Prava to block the task's exact total budget. It
-does not create a creator/HAH wallet and does not charge yet. Its response shows the
-current task reservation, remaining budget, amounts blocked by the creator's other
-tasks, and whether this task still needs approval. The first passed submission
-schedules one idempotent Prava sandbox charge for that task budget. After it succeeds,
-the first and all later verified rewards are append-only credits in the correct
-freelancer wallet. This is intentional:
+The first approval creates a reusable HAH-level logical allowance (5,000 minor USD
+units by default). `POST .../payment-authorization` atomically reserves the task's
+exact budget from that allowance. Later tasks return `active` immediately with no
+approval URL while capacity remains. When capacity is insufficient, the endpoint
+returns a new top-up approval URL; after that one approval, deductions continue
+automatically again. The amount is tracked only as backend authorization and task
+reservations—it is not presented as an HAH or creator wallet.
+
+The response includes task, pool, and global approved/allocated/available amounts.
+PostgreSQL serializes reservations and rejects any allocation beyond the pool cap.
+The first passed submission schedules one idempotent Prava sandbox charge for the
+entire approved allowance pool. After it succeeds, that pool is marked funded once
+and every verified reward is an append-only deduction from the reserved task budget
+and a credit in the correct freelancer wallet. A bounty with multiple slots therefore
+credits each verified worker separately (`reward_minor` per slot) without charging
+Prava or requesting card/OTP approval again. This is intentional:
 Prava recurring mandates allow one external charge per cycle, while a task may have
 many bounties and slots. It also matches the hackathon model where HAH receives the
 test funding and only task completers receive internal wallet balances.
@@ -304,10 +319,12 @@ send that credential through the merchant's real processor before reporting
 
 The HAH MCP server exposes `start_task_payment_authorization`,
 `restart_task_payment_authorization`, `refresh_task_payment_authorization`,
-`get_payment_status`, and `get_wallet_balance`.
+`get_global_allowance`, `get_payment_status`, and `get_wallet_balance`.
 MCP agents use the same HAH user as browser login through the OAuth delegation mapping,
 but they never receive the Prava secret or payment credentials. A human still opens
-the Prava approval URL once. Later `verify_submission` can schedule the reward; the
+the Prava approval URL only for the first allowance and later top-ups. Normal task
+reservations and verified-task deductions need no repeat card/OTP approval. Later
+`verify_submission` can schedule the reward; the
 server-side worker performs the Prava REST charge because Prava deliberately does not
 expose mandate charging through its own MCP tools.
 

@@ -12,6 +12,7 @@ const events: { value: WebhookEvent; label: string; body: string }[] = [
   { value: 'verification.completed', label: 'Verification completed', body: 'A submission is approved, rejected, or held.' },
   { value: 'mcp_request.completed', label: 'MCP request completed', body: 'An agent task or verification request finishes.' },
 ]
+const apiDocsUrl = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')}/docs`
 
 export function IntegrationsPage() {
   const { user } = useAuth()
@@ -49,7 +50,7 @@ export function IntegrationsPage() {
           <Button type="submit" variant="primary" loading={loading} icon={endpoint ? <ArrowsClockwise /> : undefined}>{endpoint ? 'Rotate secret & save' : 'Create endpoint'}</Button>
         </Surface>
         <aside className="integration-side">
-          {secret ? <Surface as="section" className="secret-panel rounded-lg border border-kumo-hairline p-5"><ShieldCheck size={24} /><h2>Save this signing secret now</h2><p>It is shown once. Rotating the endpoint invalidates the previous secret.</p><ClipboardText text={secret} /></Surface> : <Surface as="section" className="panel webhook-guide rounded-lg border border-kumo-hairline p-5"><ShieldCheck size={22} /><h3>Signed delivery</h3><p>HAH retries failed deliveries and signs canonical payload bytes.</p><Link href="http://localhost:8000/docs" target="_blank" rel="noreferrer">Open API docs <ArrowSquareOut size={14} /></Link></Surface>}
+          {secret ? <Surface as="section" className="secret-panel rounded-lg border border-kumo-hairline p-5"><ShieldCheck size={24} /><h2>Save this signing secret now</h2><p>It is shown once. Rotating the endpoint invalidates the previous secret.</p><ClipboardText text={secret} /></Surface> : <Surface as="section" className="panel webhook-guide rounded-lg border border-kumo-hairline p-5"><ShieldCheck size={22} /><h3>Signed delivery</h3><p>HAH retries failed deliveries and signs canonical payload bytes.</p><Link href={apiDocsUrl} target="_blank" rel="noreferrer">Open API docs <ArrowSquareOut size={14} /></Link></Surface>}
           {endpoint && <Surface as="section" className="panel endpoint-facts rounded-lg border border-kumo-hairline p-5"><h3>Delivery policy</h3><dl><div><dt>Success</dt><dd>{endpoint.delivery.success_statuses}</dd></div><div><dt>Max attempts</dt><dd>{endpoint.delivery.max_attempts}</dd></div><div><dt>Timeout</dt><dd>{endpoint.delivery.timeout_seconds}s</dd></div></dl></Surface>}
         </aside>
       </div>

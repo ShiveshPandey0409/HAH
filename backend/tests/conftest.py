@@ -69,14 +69,10 @@ def migrated_database() -> Iterator[None]:
 async def clean_users(migrated_database: None) -> AsyncIterator[None]:
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as connection:
-        await connection.execute(
-            text("TRUNCATE TABLE users, oauth_registered_clients CASCADE")
-        )
+        await connection.execute(text("TRUNCATE TABLE users, oauth_registered_clients CASCADE"))
     yield
     async with engine.begin() as connection:
-        await connection.execute(
-            text("TRUNCATE TABLE users, oauth_registered_clients CASCADE")
-        )
+        await connection.execute(text("TRUNCATE TABLE users, oauth_registered_clients CASCADE"))
     await engine.dispose()
 
 

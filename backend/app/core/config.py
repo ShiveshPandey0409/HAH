@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     app_name: str = "Hire a Human API"
     app_env: AppEnvironment = "development"
     log_level: str = "INFO"
+    web_allowed_origins: list[str] = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hire_human"
     mcp_public_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000/mcp")
     mcp_oauth_issuer_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
@@ -64,6 +68,8 @@ class Settings(BaseSettings):
     prava_merchant_url: AnyHttpUrl = AnyHttpUrl("https://hah-api-prava.onrender.com")
     prava_merchant_country: str = "IN"
     prava_settlement_mode: PravaSettlementMode = "prava_sandbox"
+    prava_global_allowance_minor: int = 5_000
+    prava_global_max_charges: int = 30
     prava_request_timeout_seconds: float = 10.0
     prava_payment_max_attempts: int = 4
     prava_payment_lease_seconds: int = 45
@@ -162,6 +168,8 @@ class Settings(BaseSettings):
         self.prava_merchant_country = country
 
         positive_values = (
+            self.prava_global_allowance_minor,
+            self.prava_global_max_charges,
             self.prava_request_timeout_seconds,
             self.prava_payment_max_attempts,
             self.prava_payment_lease_seconds,
@@ -171,6 +179,8 @@ class Settings(BaseSettings):
         )
         if any(value <= 0 for value in positive_values):
             raise ValueError("Prava payment worker settings must be positive")
+        if self.prava_global_max_charges > 30:
+            raise ValueError("Prava sandbox allows at most 30 configured global charges")
         if self.prava_payment_lease_seconds <= self.prava_request_timeout_seconds * 2:
             raise ValueError("Prava payment lease must exceed two provider request timeouts")
         if self.prava_payment_retry_cap_seconds < self.prava_payment_retry_base_seconds:

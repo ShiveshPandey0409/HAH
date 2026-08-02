@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { Modal, Notice, PageHeader } from '../components/UI'
 import { api } from '../lib/api'
-import { date, localClaims, money, titleCase } from '../lib/utils'
+import { date, money, titleCase } from '../lib/utils'
 import type { EligibleBounty, Platform } from '../types'
 
 export function MarketplacePage() {
@@ -31,8 +31,7 @@ export function MarketplacePage() {
     if (!selected) return
     setClaiming(true); setError('')
     try {
-      const response = await api.claimBounty(selected.bounty_id, selected.social_account_id)
-      localClaims.add(user.id, { ...response, bounty: selected })
+      await api.claimBounty(selected.bounty_id, selected.social_account_id)
       setBounties((items) => items.filter((item) => item.bounty_id !== selected.bounty_id)); setClaimed(true)
     } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Could not claim bounty') }
     finally { setClaiming(false) }

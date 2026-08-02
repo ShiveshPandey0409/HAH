@@ -20,6 +20,8 @@ services:
         value: production
       - key: LOG_LEVEL
         value: INFO
+      - key: WEB_ALLOWED_ORIGINS
+        value: '["https://hah-frontend-prava.onrender.com"]'
       - key: MCP_PUBLIC_URL
         value: https://hah-api-prava.onrender.com/mcp
       - key: MCP_OAUTH_ISSUER_URL
@@ -58,6 +60,10 @@ services:
         value: IN
       - key: PRAVA_SETTLEMENT_MODE
         value: prava_sandbox
+      - key: PRAVA_GLOBAL_ALLOWANCE_MINOR
+        value: "5000"
+      - key: PRAVA_GLOBAL_MAX_CHARGES
+        value: "30"
       - key: HTTP_SESSION_TTL_SECONDS
         value: "604800"
       - key: PASSWORD_RESET_TTL_SECONDS
@@ -78,6 +84,25 @@ services:
         sync: false
       - key: SMTP_FROM_EMAIL
         sync: false
+
+  - type: web
+    name: hah-frontend-prava
+    runtime: static
+    repo: https://github.com/ShiveshPandey0409/HAH
+    branch: shivesh
+    rootDir: frontend
+    buildCommand: bun install --frozen-lockfile && bun run build
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://hah-api-prava.onrender.com
+      - key: VITE_MCP_URL
+        value: https://hah-api-prava.onrender.com/mcp
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 databases:
   - name: hah-postgres
