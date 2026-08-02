@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies.auth import AUTHENTICATED_RESPONSES, AuthenticatedSessionDependency
 from app.db.session import get_db_session
-from app.schemas.payment import PaymentAuthorizationResponse, PaymentResponse, WalletResponse
+from app.schemas.payment import (
+    GlobalPaymentAllowanceResponse,
+    PaymentAuthorizationResponse,
+    PaymentResponse,
+    WalletResponse,
+)
 from app.services.payments import (
     PaymentAuthorizationRequiredError,
     PaymentConflictError,
@@ -17,6 +22,7 @@ from app.services.payments import (
     PaymentProviderUnavailableError,
     PaymentValidationError,
     PravaGatewayError,
+    get_global_payment_allowance,
     get_payment,
     get_submission_payment,
     get_task_payment_authorization,
@@ -162,6 +168,19 @@ async def get_task_payment_authorization_endpoint(
             creator_id=authenticated.user.id,
         )
     except PaymentNotFoundError as error:
+        raise _payment_http_error(error) from error
+
+
+@router.get("/payments/global-allowance", response_model=GlobalPaymentAllowanceResponse)
+async def get_global_payment_allowance_endpoint(
+    session: SessionDependency,
+    authenticated: AuthenticatedSessionDependency,
+    currency: str = "USD",
+) -> GlobalPaymentAllowanceResponse:
+    del authenticated
+    try:
+        return await get_global_payment_allowance(session, currency=currency)
+    except PaymentValidationError as error:
         raise _payment_http_error(error) from error
 
 

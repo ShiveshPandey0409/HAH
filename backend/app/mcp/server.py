@@ -22,7 +22,12 @@ from app.mcp.oauth import (
     build_oauth_token_verifier,
     get_current_oauth_principal,
 )
-from app.schemas.payment import PaymentAuthorizationResponse, PaymentResponse, WalletResponse
+from app.schemas.payment import (
+    GlobalPaymentAllowanceResponse,
+    PaymentAuthorizationResponse,
+    PaymentResponse,
+    WalletResponse,
+)
 from app.schemas.submission import SubmissionResponse, VerificationResult
 from app.schemas.task import (
     POSTGRES_BIGINT_MAX,
@@ -41,6 +46,7 @@ from app.services.api_clients import (
 )
 from app.services.mcp_requests import create_task_from_mcp, verify_submission_from_mcp
 from app.services.payments import (
+    get_global_payment_allowance,
     get_payment,
     get_wallet,
     refresh_task_payment_authorization_and_commit,
@@ -157,7 +163,7 @@ async def get_submission_proofs(submission_id: UUID) -> CallToolResult:
 async def start_task_payment_authorization(
     task_id: UUID,
 ) -> PaymentAuthorizationResponse:
-    """Start the one-time human approval needed for automatic task rewards."""
+    """Reserve a task from the approved HAH allowance, requesting a top-up only if needed."""
 
     principal = get_current_oauth_principal()
     require_api_scope(principal, PAYMENTS_WRITE_SCOPE)
@@ -174,7 +180,7 @@ async def start_task_payment_authorization(
 async def refresh_task_payment_authorization(
     task_id: UUID,
 ) -> PaymentAuthorizationResponse:
-    """Refresh a task mandate after the universal payer opens its approval URL."""
+    """Activate a pending global HAH allowance after its one-time human approval."""
 
     principal = get_current_oauth_principal()
     require_api_scope(principal, PAYMENTS_WRITE_SCOPE)
@@ -191,7 +197,7 @@ async def refresh_task_payment_authorization(
 async def restart_task_payment_authorization(
     task_id: UUID,
 ) -> PaymentAuthorizationResponse:
-    """Replace a consumed or failed hosted approval session for one owned task."""
+    """Replace the pending global allowance's consumed or expired approval session."""
 
     principal = get_current_oauth_principal()
     require_api_scope(principal, PAYMENTS_WRITE_SCOPE)
@@ -203,6 +209,17 @@ async def restart_task_payment_authorization(
             creator_id=principal.user_id,
             runtime=runtime,
         )
+
+
+async def get_global_allowance(
+    currency: str = "USD",
+) -> GlobalPaymentAllowanceResponse:
+    """Read approved, allocated, available, and pending HAH allowance amounts."""
+
+    principal = get_current_oauth_principal()
+    require_api_scope(principal, PAYMENTS_READ_SCOPE)
+    async with AsyncSessionFactory() as session:
+        return await get_global_payment_allowance(session, currency=currency)
 
 
 async def get_payment_status(payment_id: UUID) -> PaymentResponse:
@@ -324,8 +341,8 @@ def create_mcp_server(
     server.tool(
         title="Start task payment authorization",
         description=(
-            "Allocate one owned task's exact budget. Returns the task and other-task "
-            "blocked amounts plus a Prava approval URL when more approval is required."
+            "Atomically reserve one owned task from the reusable HAH allowance. Returns "
+            "a Prava approval URL only when the shared allowance needs a top-up."
         ),
         structured_output=True,
         annotations=ToolAnnotations(
@@ -338,8 +355,8 @@ def create_mcp_server(
     server.tool(
         title="Refresh task payment authorization",
         description=(
-            "Check Prava after human approval and return blocked, used, and remaining "
-            "task-budget amounts for automatic rewards."
+            "Check Prava after the one-time global approval and activate every task "
+            "reservation backed by that allowance pool."
         ),
         structured_output=True,
         annotations=ToolAnnotations(
@@ -352,8 +369,8 @@ def create_mcp_server(
     server.tool(
         title="Restart task payment authorization",
         description=(
-            "Replace a consumed or failed Prava approval session and return a fresh URL. "
-            "Open the returned URL once in a passkey-capable browser."
+            "Replace a consumed or expired global top-up session and return a fresh URL. "
+            "This is never needed while an approved allowance has enough capacity."
         ),
         structured_output=True,
         annotations=ToolAnnotations(
@@ -363,6 +380,20 @@ def create_mcp_server(
             open_world_hint=True,
         ),
     )(restart_task_payment_authorization)
+    server.tool(
+        title="Get global payment allowance",
+        description=(
+            "Read the HAH-wide approved, allocated, available, and pending Prava allowance "
+            "without exposing card or mandate credentials."
+        ),
+        structured_output=True,
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )(get_global_allowance)
     server.tool(
         title="Get payment status",
         description="Read one HAH reward payment without exposing payment credentials.",

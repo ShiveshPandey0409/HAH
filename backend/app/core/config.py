@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     prava_merchant_url: AnyHttpUrl = AnyHttpUrl("https://hah-api-prava.onrender.com")
     prava_merchant_country: str = "IN"
     prava_settlement_mode: PravaSettlementMode = "prava_sandbox"
+    prava_global_allowance_minor: int = 5_000
+    prava_global_max_charges: int = 30
     prava_request_timeout_seconds: float = 10.0
     prava_payment_max_attempts: int = 4
     prava_payment_lease_seconds: int = 45
@@ -166,6 +168,8 @@ class Settings(BaseSettings):
         self.prava_merchant_country = country
 
         positive_values = (
+            self.prava_global_allowance_minor,
+            self.prava_global_max_charges,
             self.prava_request_timeout_seconds,
             self.prava_payment_max_attempts,
             self.prava_payment_lease_seconds,
@@ -175,6 +179,8 @@ class Settings(BaseSettings):
         )
         if any(value <= 0 for value in positive_values):
             raise ValueError("Prava payment worker settings must be positive")
+        if self.prava_global_max_charges > 30:
+            raise ValueError("Prava sandbox allows at most 30 configured global charges")
         if self.prava_payment_lease_seconds <= self.prava_request_timeout_seconds * 2:
             raise ValueError("Prava payment lease must exceed two provider request timeouts")
         if self.prava_payment_retry_cap_seconds < self.prava_payment_retry_base_seconds:

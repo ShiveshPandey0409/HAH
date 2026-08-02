@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from pydantic import SecretStr
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from app.models.payment import (
 from app.models.submission import Submission, VerificationStatus
 from app.models.task import Bounty, Task, TaskStatus
 from app.schemas.payment import (
+    GlobalPaymentAllowanceResponse,
     PaymentAuthorizationResponse,
     PaymentResponse,
     WalletBalanceResponse,
@@ -273,7 +274,7 @@ class HTTPPravaGateway:
                         },
                         "product_details": [
                             {
-                                "description": f"Task reward cap: {task_title[:120]}",
+                                "description": f"HAH task allowance: {task_title[:120]}",
                                 "unit_price": amount,
                                 "quantity": 1,
                             }
@@ -446,6 +447,8 @@ class PaymentRuntime:
     merchant_country: str
     payer_user_id: str
     payer_email: str
+    global_allowance_minor: int = 5_000
+    global_max_charges: int = 30
     policy: PaymentWorkerPolicy = field(default_factory=PaymentWorkerPolicy)
 
 
@@ -478,6 +481,8 @@ def runtime_from_settings(settings: Settings | None = None) -> PaymentRuntime:
         merchant_country=settings.prava_merchant_country,
         payer_user_id=settings.prava_payer_user_id.strip(),
         payer_email=str(settings.prava_payer_email),
+        global_allowance_minor=settings.prava_global_allowance_minor,
+        global_max_charges=settings.prava_global_max_charges,
         policy=PaymentWorkerPolicy(
             max_attempts=settings.prava_payment_max_attempts,
             lease_seconds=settings.prava_payment_lease_seconds,
@@ -503,43 +508,48 @@ async def _authorization_response(
     *,
     approval_url: str | None = None,
 ) -> PaymentAuthorizationResponse:
+    currency_authorizations = list(
+        (
+            await session.scalars(
+                select(PaymentAuthorization)
+                .where(PaymentAuthorization.currency == authorization.currency)
+                .order_by(PaymentAuthorization.created_at, PaymentAuthorization.id)
+            )
+        ).all()
+    )
+    grouped = _group_authorizations_by_pool(currency_authorizations)
+    pool_authorizations = grouped.get(authorization.pool_id, [authorization])
+    pool_allocated_minor = sum(row.total_cap_minor for row in pool_authorizations)
+    allowance = _global_allowance_from_groups(
+        currency=authorization.currency.strip(),
+        grouped=grouped,
+    )
     remaining_minor = max(authorization.total_cap_minor - authorization.used_minor, 0)
     reserves_budget = authorization.status in {
         AuthorizationStatus.ACTIVE,
         AuthorizationStatus.PAUSED,
     }
     blocked_minor = remaining_minor if reserves_budget else 0
-    other_tasks_blocked_minor = int(
-        await session.scalar(
-            select(
-                func.coalesce(
-                    func.sum(
-                        PaymentAuthorization.total_cap_minor - PaymentAuthorization.used_minor
-                    ),
-                    0,
-                )
-            ).where(
-                PaymentAuthorization.creator_id == authorization.creator_id,
-                PaymentAuthorization.id != authorization.id,
-                PaymentAuthorization.currency == authorization.currency,
-                PaymentAuthorization.status.in_(
-                    [AuthorizationStatus.ACTIVE, AuthorizationStatus.PAUSED]
-                ),
-                PaymentAuthorization.total_cap_minor > PaymentAuthorization.used_minor,
-            )
-        )
-        or 0
+    other_tasks_blocked_minor = sum(
+        max(row.total_cap_minor - row.used_minor, 0)
+        for row in currency_authorizations
+        if row.id != authorization.id
+        and row.status in {AuthorizationStatus.ACTIVE, AuthorizationStatus.PAUSED}
     )
     additional_required = (
-        remaining_minor if authorization.status == AuthorizationStatus.PENDING else 0
+        authorization.pool_cap_minor if authorization.status == AuthorizationStatus.PENDING else 0
     )
     return PaymentAuthorizationResponse(
         id=authorization.id,
         task_id=authorization.task_id,
+        pool_id=authorization.pool_id,
         provider=authorization.provider,
         status=authorization.status,
         per_payment_cap_minor=authorization.per_payment_cap_minor,
         total_cap_minor=authorization.total_cap_minor,
+        pool_cap_minor=authorization.pool_cap_minor,
+        pool_allocated_minor=pool_allocated_minor,
+        pool_available_minor=max(authorization.pool_cap_minor - pool_allocated_minor, 0),
         used_minor=authorization.used_minor,
         max_payments=authorization.max_payments,
         payments_used=authorization.payments_used,
@@ -555,6 +565,13 @@ async def _authorization_response(
         other_tasks_blocked_minor=other_tasks_blocked_minor,
         total_creator_blocked_minor=blocked_minor + other_tasks_blocked_minor,
         additional_approval_required_minor=additional_required,
+        global_approved_minor=allowance.approved_minor,
+        global_allocated_minor=allowance.allocated_minor,
+        global_available_minor=allowance.available_minor,
+        global_pending_approval_minor=allowance.pending_approval_minor,
+        reused_global_approval=(
+            authorization.status == AuthorizationStatus.ACTIVE and len(pool_authorizations) > 1
+        ),
         approval_url=approval_url,
         approval_expires_at=(
             authorization.provider_session_expires_at if approval_url is not None else None
@@ -563,6 +580,134 @@ async def _authorization_response(
         created_at=authorization.created_at,
         updated_at=authorization.updated_at,
     )
+
+
+def _group_authorizations_by_pool(
+    authorizations: list[PaymentAuthorization],
+) -> dict[UUID, list[PaymentAuthorization]]:
+    grouped: dict[UUID, list[PaymentAuthorization]] = {}
+    for authorization in authorizations:
+        grouped.setdefault(authorization.pool_id, []).append(authorization)
+    return grouped
+
+
+def _global_allowance_from_groups(
+    *,
+    currency: str,
+    grouped: dict[UUID, list[PaymentAuthorization]],
+) -> GlobalPaymentAllowanceResponse:
+    approved_minor = 0
+    allocated_minor = 0
+    pending_approval_minor = 0
+    active_pool_count = 0
+    pending_pool_count = 0
+    for pool_rows in grouped.values():
+        pool_cap_minor = pool_rows[0].pool_cap_minor
+        statuses = {row.status for row in pool_rows}
+        if AuthorizationStatus.ACTIVE in statuses:
+            approved_minor += pool_cap_minor
+            allocated_minor += sum(row.total_cap_minor for row in pool_rows)
+            active_pool_count += 1
+        elif AuthorizationStatus.PENDING in statuses:
+            pending_approval_minor += pool_cap_minor
+            pending_pool_count += 1
+    return GlobalPaymentAllowanceResponse(
+        currency=currency.strip().upper(),
+        approved_minor=approved_minor,
+        allocated_minor=allocated_minor,
+        available_minor=max(approved_minor - allocated_minor, 0),
+        pending_approval_minor=pending_approval_minor,
+        active_pool_count=active_pool_count,
+        pending_pool_count=pending_pool_count,
+    )
+
+
+async def get_global_payment_allowance(
+    session: AsyncSession,
+    *,
+    currency: str,
+) -> GlobalPaymentAllowanceResponse:
+    normalized_currency = currency.strip().upper()
+    _minor_to_decimal(1, normalized_currency)
+    authorizations = list(
+        (
+            await session.scalars(
+                select(PaymentAuthorization).where(
+                    PaymentAuthorization.currency == normalized_currency
+                )
+            )
+        ).all()
+    )
+    return _global_allowance_from_groups(
+        currency=normalized_currency,
+        grouped=_group_authorizations_by_pool(authorizations),
+    )
+
+
+async def _lock_global_allowance(session: AsyncSession, *, currency: str) -> None:
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"hah-prava-global-allowance:{currency}"},
+    )
+
+
+async def _locked_pool_rows(
+    session: AsyncSession,
+    *,
+    pool_id: UUID,
+) -> list[PaymentAuthorization]:
+    return list(
+        (
+            await session.scalars(
+                select(PaymentAuthorization)
+                .where(PaymentAuthorization.pool_id == pool_id)
+                .order_by(PaymentAuthorization.created_at, PaymentAuthorization.id)
+                .with_for_update()
+            )
+        ).all()
+    )
+
+
+async def _find_reusable_pool(
+    session: AsyncSession,
+    *,
+    currency: str,
+    required_minor: int,
+    now: datetime,
+) -> list[PaymentAuthorization] | None:
+    authorizations = list(
+        (
+            await session.scalars(
+                select(PaymentAuthorization)
+                .where(
+                    PaymentAuthorization.currency == currency,
+                    PaymentAuthorization.status == AuthorizationStatus.ACTIVE,
+                )
+                .order_by(PaymentAuthorization.created_at, PaymentAuthorization.id)
+                .with_for_update()
+            )
+        ).all()
+    )
+    candidates: list[tuple[int, datetime, list[PaymentAuthorization]]] = []
+    for pool_rows in _group_authorizations_by_pool(authorizations).values():
+        representative = pool_rows[0]
+        allocated_minor = sum(row.total_cap_minor for row in pool_rows)
+        available_minor = representative.pool_cap_minor - allocated_minor
+        valid_until = next((row.valid_until for row in pool_rows if row.valid_until), None)
+        mandate_id = next(
+            (row.provider_authorization_ref for row in pool_rows if row.provider_authorization_ref),
+            None,
+        )
+        if (
+            available_minor >= required_minor
+            and mandate_id is not None
+            and (valid_until is None or valid_until > now)
+        ):
+            candidates.append((available_minor, representative.created_at, pool_rows))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda candidate: (candidate[0], candidate[1]))
+    return candidates[0][2]
 
 
 async def start_task_payment_authorization(
@@ -619,25 +764,73 @@ async def start_task_payment_authorization(
         "max_payments": max_payments,
         "currency": task.currency,
     }
-    customer_ref = f"{runtime.payer_user_id}:task:{task.id}"
-    if len(customer_ref) > 255:
-        customer_ref = f"hah-task:{task.id}"
+    await _lock_global_allowance(session, currency=currency)
+    reusable_pool = await _find_reusable_pool(
+        session,
+        currency=currency,
+        required_minor=task.total_budget_minor,
+        now=now,
+    )
+    if reusable_pool is not None:
+        representative = reusable_pool[0]
+        mandate_id = next(
+            row.provider_authorization_ref
+            for row in reusable_pool
+            if row.provider_authorization_ref is not None
+        )
+        valid_until = next((row.valid_until for row in reusable_pool if row.valid_until), None)
+        reused_values = {
+            "pool_id": representative.pool_id,
+            "pool_cap_minor": representative.pool_cap_minor,
+            "provider_customer_ref": representative.provider_customer_ref,
+            "provider_session_ref": None,
+            "provider_session_expires_at": None,
+            "provider_authorization_ref": mandate_id,
+            "funding_status": PaymentStatus.CREATED,
+            "funding_idempotency_key": f"hah-task-funding:{task.id}",
+            "provider_funding_transaction_ref": None,
+            "funding_failure_code": None,
+            "funding_failure_message": None,
+            "funded_at": None,
+            "status": AuthorizationStatus.ACTIVE,
+            "valid_until": valid_until,
+            **common_values,
+        }
+        if authorization is None:
+            authorization = PaymentAuthorization(
+                task_id=task.id,
+                creator_id=creator_id,
+                provider="prava",
+                **reused_values,
+            )
+            session.add(authorization)
+        else:
+            for field_name, value in reused_values.items():
+                setattr(authorization, field_name, value)
+        await session.flush()
+        await session.refresh(authorization)
+        return await _authorization_response(session, authorization)
+
+    customer_ref = runtime.payer_user_id
+    pool_cap_minor = max(runtime.global_allowance_minor, task.total_budget_minor)
     provider_session = await runtime.gateway.create_mandate_session(
         customer_id=customer_ref,
         customer_email=runtime.payer_email,
-        amount=_minor_to_decimal(task.total_budget_minor, task.currency),
+        amount=_minor_to_decimal(pool_cap_minor, task.currency),
         currency=currency,
         merchant_name=runtime.merchant_name,
         merchant_url=runtime.merchant_url,
         merchant_country=runtime.merchant_country,
-        task_title=task.title,
-        max_charges=1,
+        task_title=f"Global allowance triggered by {task.title}",
+        max_charges=runtime.global_max_charges,
     )
 
     if authorization is None:
         authorization = PaymentAuthorization(
             task_id=task.id,
             creator_id=creator_id,
+            pool_id=uuid4(),
+            pool_cap_minor=pool_cap_minor,
             provider="prava",
             provider_customer_ref=customer_ref,
             provider_session_ref=provider_session.session_id,
@@ -649,6 +842,8 @@ async def start_task_payment_authorization(
         )
         session.add(authorization)
     else:
+        authorization.pool_id = uuid4()
+        authorization.pool_cap_minor = pool_cap_minor
         authorization.provider_customer_ref = customer_ref
         authorization.provider_session_ref = provider_session.session_id
         authorization.provider_session_expires_at = provider_session.expires_at
@@ -710,17 +905,24 @@ async def restart_task_payment_authorization(
     )
     if authorization is None:
         raise PaymentNotFoundError("Payment authorization not found")
-    if authorization.status == AuthorizationStatus.ACTIVE:
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
+    if any(row.status == AuthorizationStatus.ACTIVE for row in pool_rows):
         raise PaymentConflictError("Active payment authorization cannot be restarted")
-    if authorization.payments_used or authorization.used_minor:
+    if any(row.payments_used or row.used_minor for row in pool_rows):
         raise PaymentConflictError("Used payment authorization cannot be restarted")
-    if authorization.status not in {AuthorizationStatus.PENDING, AuthorizationStatus.EXPIRED}:
+    if any(
+        row.status not in {AuthorizationStatus.PENDING, AuthorizationStatus.EXPIRED}
+        for row in pool_rows
+    ):
         raise PaymentConflictError("Payment authorization cannot be restarted in this state")
 
-    if authorization.provider_session_ref is not None:
+    session_ref = next(
+        (row.provider_session_ref for row in pool_rows if row.provider_session_ref), None
+    )
+    if session_ref is not None:
         try:
             await runtime.gateway.revoke_session(
-                session_id=authorization.provider_session_ref,
+                session_id=session_ref,
             )
         except PravaGatewayError as error:
             # Prava returns NOT_FOUND for a session that was already consumed,
@@ -730,13 +932,31 @@ async def restart_task_payment_authorization(
             if error.code != "NOT_FOUND":
                 raise
 
-    authorization.provider_session_expires_at = datetime.now(UTC)
+    provider_session = await runtime.gateway.create_mandate_session(
+        customer_id=runtime.payer_user_id,
+        customer_email=runtime.payer_email,
+        amount=_minor_to_decimal(authorization.pool_cap_minor, authorization.currency),
+        currency=authorization.currency.strip(),
+        merchant_name=runtime.merchant_name,
+        merchant_url=runtime.merchant_url,
+        merchant_country=runtime.merchant_country,
+        task_title=f"Global allowance triggered by {task.title}",
+        max_charges=runtime.global_max_charges,
+    )
+    for row in pool_rows:
+        row.provider_customer_ref = runtime.payer_user_id
+        row.provider_session_ref = None
+        row.provider_session_expires_at = provider_session.expires_at
+        row.provider_authorization_ref = None
+        row.status = AuthorizationStatus.PENDING
+        row.valid_until = None
+    authorization.provider_session_ref = provider_session.session_id
     await session.flush()
-    return await start_task_payment_authorization(
+    await session.refresh(authorization)
+    return await _authorization_response(
         session,
-        task_id,
-        creator_id=creator_id,
-        runtime=runtime,
+        authorization,
+        approval_url=provider_session.approval_url,
     )
 
 
@@ -778,14 +998,25 @@ async def refresh_task_payment_authorization(
     )
     if authorization is None:
         raise PaymentNotFoundError("Payment authorization not found")
+    pool_rows = await _locked_pool_rows(session, pool_id=authorization.pool_id)
     if authorization.status in {AuthorizationStatus.ACTIVE, AuthorizationStatus.CANCELLED}:
         return await _authorization_response(session, authorization)
     if authorization.provider_customer_ref is None:
         raise PaymentConflictError("Payment authorization is missing its Prava customer")
 
     expected_amount = _minor_to_decimal(
-        authorization.total_cap_minor,
+        authorization.pool_cap_minor,
         authorization.currency,
+    )
+    assigned_mandates = set(
+        (
+            await session.scalars(
+                select(PaymentAuthorization.provider_authorization_ref).where(
+                    PaymentAuthorization.pool_id != authorization.pool_id,
+                    PaymentAuthorization.provider_authorization_ref.is_not(None),
+                )
+            )
+        ).all()
     )
     mandates = await runtime.gateway.list_mandates(customer_id=authorization.provider_customer_ref)
     matching = sorted(
@@ -794,15 +1025,14 @@ async def refresh_task_payment_authorization(
             for mandate in mandates
             if mandate.currency == authorization.currency.strip()
             and mandate.approved_amount == expected_amount
+            and mandate.mandate_id not in assigned_mandates
         ),
         key=lambda mandate: mandate.updated_at,
         reverse=True,
     )
     if matching:
         mandate = matching[0]
-        authorization.provider_authorization_ref = mandate.mandate_id
-        authorization.valid_until = mandate.valid_until
-        authorization.status = {
+        pool_status = {
             "active": AuthorizationStatus.ACTIVE,
             "paused": AuthorizationStatus.PAUSED,
             "expired": AuthorizationStatus.EXPIRED,
@@ -810,13 +1040,18 @@ async def refresh_task_payment_authorization(
             "consumed": AuthorizationStatus.EXPIRED,
             "pending": AuthorizationStatus.PENDING,
         }.get(mandate.status, AuthorizationStatus.PENDING)
-        if mandate.status == "active":
-            authorization.funding_status = PaymentStatus.CREATED
+        for row in pool_rows:
+            row.provider_authorization_ref = mandate.mandate_id
+            row.valid_until = mandate.valid_until
+            row.status = pool_status
+            if mandate.status == "active":
+                row.funding_status = PaymentStatus.CREATED
     elif (
         authorization.provider_session_expires_at is not None
         and authorization.provider_session_expires_at <= datetime.now(UTC)
     ):
-        authorization.status = AuthorizationStatus.EXPIRED
+        for row in pool_rows:
+            row.status = AuthorizationStatus.EXPIRED
     await session.flush()
     await session.refresh(authorization)
     return await _authorization_response(session, authorization)

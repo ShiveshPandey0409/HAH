@@ -60,6 +60,10 @@ services:
         value: IN
       - key: PRAVA_SETTLEMENT_MODE
         value: prava_sandbox
+      - key: PRAVA_GLOBAL_ALLOWANCE_MINOR
+        value: "5000"
+      - key: PRAVA_GLOBAL_MAX_CHARGES
+        value: "30"
       - key: HTTP_SESSION_TTL_SECONDS
         value: "604800"
       - key: PASSWORD_RESET_TTL_SECONDS

@@ -47,7 +47,7 @@ from tests.test_tasks import task_payload
 class FakePravaGateway:
     def __init__(self) -> None:
         self.created_customers: list[str] = []
-        self.approved_amounts: dict[str, str] = {}
+        self.created_amounts: list[str] = []
         self.charge_references: list[str] = []
         self.revoked_sessions: list[str] = []
         self.revoke_failures: list[PravaGatewayError] = []
@@ -55,7 +55,7 @@ class FakePravaGateway:
 
     async def create_mandate_session(self, **kwargs) -> PravaMandateSession:
         self.created_customers.append(kwargs["customer_id"])
-        self.approved_amounts[kwargs["customer_id"]] = kwargs["amount"]
+        self.created_amounts.append(kwargs["amount"])
         return PravaMandateSession(
             session_id=f"sess_{len(self.created_customers)}",
             approval_url="https://sandbox.collect.prava.space/approve-demo",
@@ -66,14 +66,16 @@ class FakePravaGateway:
         assert customer_id in self.created_customers
         return [
             PravaMandate(
-                mandate_id=f"mdt_hah_test_{self.created_customers.index(customer_id) + 1}",
+                mandate_id=f"mdt_hah_test_{index + 1}",
                 status="active",
                 state="available",
-                approved_amount=self.approved_amounts[customer_id],
+                approved_amount=self.created_amounts[index],
                 currency="USD",
                 valid_until=datetime.now(UTC) + timedelta(days=30),
-                updated_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC) + timedelta(seconds=index),
             )
+            for index, created_customer in enumerate(self.created_customers)
+            if created_customer == customer_id
         ]
 
     async def revoke_session(self, *, session_id: str) -> None:
@@ -171,7 +173,11 @@ async def test_http_prava_revoke_session_requires_success(monkeypatch) -> None:
     assert caught.value.code == "PRAVA_INVALID_RESPONSE"
 
 
-def payment_runtime(gateway: FakePravaGateway) -> PaymentRuntime:
+def payment_runtime(
+    gateway: FakePravaGateway,
+    *,
+    global_allowance_minor: int = 5_000,
+) -> PaymentRuntime:
     return PaymentRuntime(
         gateway=gateway,
         merchant_name="Hire a Human",
@@ -179,6 +185,8 @@ def payment_runtime(gateway: FakePravaGateway) -> PaymentRuntime:
         merchant_country="IN",
         payer_user_id="universal-hackathon-payer",
         payer_email="payer@example.com",
+        global_allowance_minor=global_allowance_minor,
+        global_max_charges=30,
         policy=PaymentWorkerPolicy(
             max_attempts=3,
             lease_seconds=30,
@@ -529,7 +537,7 @@ async def test_one_prava_task_funding_charge_backs_multiple_verified_wallet_cred
         assert sum(payment.provider_transaction_ref is not None for payment in payments) == 1
 
 
-async def test_each_task_gets_its_own_approval_and_reports_other_blocked_budget(
+async def test_tasks_reuse_one_global_approval_and_report_available_budget(
     client: AsyncClient,
     monkeypatch,
 ) -> None:
@@ -570,6 +578,10 @@ async def test_each_task_gets_its_own_approval_and_reports_other_blocked_budget(
     first_budget = first_authorization.json()["total_cap_minor"]
     assert first_authorization.json()["blocked_minor"] == first_budget
     assert first_authorization.json()["other_tasks_blocked_minor"] == 0
+    assert first_authorization.json()["pool_cap_minor"] == 5_000
+    assert first_authorization.json()["global_approved_minor"] == 5_000
+    assert first_authorization.json()["global_allocated_minor"] == first_budget
+    assert first_authorization.json()["global_available_minor"] == 5_000 - first_budget
 
     second_started = await client.post(
         f"/v1/tasks/{second_task_id}/payment-authorization",
@@ -577,12 +589,85 @@ async def test_each_task_gets_its_own_approval_and_reports_other_blocked_budget(
     )
     assert second_started.status_code == 201, second_started.text
     second_budget = second_started.json()["total_cap_minor"]
-    assert second_started.json()["status"] == "pending"
-    assert second_started.json()["blocked_minor"] == 0
+    assert second_started.json()["status"] == "active"
+    assert second_started.json()["approval_url"] is None
+    assert second_started.json()["reused_global_approval"] is True
+    assert second_started.json()["pool_id"] == first_authorization.json()["pool_id"]
+    assert (
+        second_started.json()["provider_authorization_ref"]
+        == first_authorization.json()["provider_authorization_ref"]
+    )
+    assert second_started.json()["blocked_minor"] == second_budget
     assert second_started.json()["other_tasks_blocked_minor"] == first_budget
-    assert second_started.json()["total_creator_blocked_minor"] == first_budget
-    assert second_started.json()["additional_approval_required_minor"] == second_budget
-    assert len(gateway.created_customers) == 2
+    assert second_started.json()["total_creator_blocked_minor"] == first_budget + second_budget
+    assert second_started.json()["additional_approval_required_minor"] == 0
+    assert second_started.json()["pool_allocated_minor"] == first_budget + second_budget
+    assert second_started.json()["global_allocated_minor"] == first_budget + second_budget
+    assert second_started.json()["global_available_minor"] == 5_000 - (first_budget + second_budget)
+    assert gateway.created_customers == ["universal-hackathon-payer"]
+
+    allowance = await client.get(
+        "/v1/payments/global-allowance?currency=usd",
+        headers=client.auth_headers(creator_id),
+    )
+    assert allowance.status_code == 200, allowance.text
+    assert allowance.json() == {
+        "currency": "USD",
+        "approved_minor": 5_000,
+        "allocated_minor": first_budget + second_budget,
+        "available_minor": 5_000 - first_budget - second_budget,
+        "pending_approval_minor": 0,
+        "active_pool_count": 1,
+        "pending_pool_count": 0,
+    }
+
+
+async def test_exhausted_global_allowance_requests_one_new_top_up(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    creator_id = await create_user(
+        client,
+        email="payment-top-up-creator@example.com",
+        can_create_tasks=True,
+        can_work_tasks=False,
+    )
+    first_task = await create_open_task(
+        client,
+        creator_id,
+        [bounty_payload("Exhaust allowance")],
+    )
+    second_task = await create_open_task(
+        client,
+        creator_id,
+        [bounty_payload("Needs top up")],
+    )
+    first_task_id = UUID(first_task["id"])
+    second_task_id = UUID(second_task["id"])
+    gateway = FakePravaGateway()
+    runtime = payment_runtime(gateway, global_allowance_minor=1_000)
+    monkeypatch.setattr(payment_routes, "runtime_from_settings", lambda: runtime)
+
+    await _authorize_task(
+        client,
+        task_id=first_task_id,
+        creator_id=creator_id,
+        runtime=runtime,
+        monkeypatch=monkeypatch,
+    )
+    second_started = await client.post(
+        f"/v1/tasks/{second_task_id}/payment-authorization",
+        headers=client.auth_headers(creator_id),
+    )
+    assert second_started.status_code == 201, second_started.text
+    assert second_started.json()["status"] == "pending"
+    assert second_started.json()["additional_approval_required_minor"] == 1_000
+    assert second_started.json()["global_available_minor"] == 0
+    assert second_started.json()["global_pending_approval_minor"] == 1_000
+    assert gateway.created_customers == [
+        "universal-hackathon-payer",
+        "universal-hackathon-payer",
+    ]
 
     second_refreshed = await client.post(
         f"/v1/tasks/{second_task_id}/payment-authorization/refresh",
@@ -590,10 +675,10 @@ async def test_each_task_gets_its_own_approval_and_reports_other_blocked_budget(
     )
     assert second_refreshed.status_code == 200, second_refreshed.text
     assert second_refreshed.json()["status"] == "active"
-    assert second_refreshed.json()["blocked_minor"] == second_budget
-    assert second_refreshed.json()["other_tasks_blocked_minor"] == first_budget
-    assert second_refreshed.json()["total_creator_blocked_minor"] == (first_budget + second_budget)
-    assert second_refreshed.json()["additional_approval_required_minor"] == 0
+    assert second_refreshed.json()["global_approved_minor"] == 2_000
+    assert second_refreshed.json()["global_allocated_minor"] == 2_000
+    assert second_refreshed.json()["global_available_minor"] == 0
+    assert second_refreshed.json()["global_pending_approval_minor"] == 0
 
 
 async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
@@ -629,6 +714,10 @@ async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
                 "refresh_task_payment_authorization",
                 {"task_id": str(task_id)},
             )
+            allowance = await mcp_client.call_tool(
+                "get_global_allowance",
+                {"currency": "USD"},
+            )
 
     assert not started.is_error
     assert started.structured_content["task_id"] == str(task_id)
@@ -638,6 +727,10 @@ async def test_oauth_mcp_uses_same_user_for_prava_task_and_completer_wallet(
     assert restarted.structured_content["status"] == "pending"
     assert gateway.revoked_sessions == ["sess_1"]
     assert refreshed.structured_content["status"] == "active"
+    assert not allowance.is_error
+    assert allowance.structured_content["approved_minor"] == 5_000
+    assert allowance.structured_content["allocated_minor"] == 1_000
+    assert allowance.structured_content["available_minor"] == 4_000
     assert (
         refreshed.structured_content["blocked_minor"]
         == (refreshed.structured_content["total_cap_minor"])

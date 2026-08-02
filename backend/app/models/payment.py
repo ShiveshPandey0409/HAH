@@ -48,6 +48,11 @@ class PaymentAuthorization(Base):
     __tablename__ = "payment_authorizations"
     __table_args__ = (
         UniqueConstraint("task_id", name="payment_authorizations_task_id_key"),
+        Index("payment_authorizations_pool_idx", "pool_id", "created_at"),
+        CheckConstraint(
+            "total_cap_minor <= pool_cap_minor",
+            name="payment_authorizations_pool_cap_check",
+        ),
         CheckConstraint(
             "provider_customer_ref IS NULL OR "
             "(provider_customer_ref = btrim(provider_customer_ref) "
@@ -60,7 +65,7 @@ class PaymentAuthorization(Base):
             "AND provider_session_ref <> '')",
             name="payment_authorizations_session_ref_check",
         ),
-        {"comment": ("Task-level Prava standing mandate and local automatic-payment caps.")},
+        {"comment": ("Task reservation against a reusable HAH-level Prava allowance pool.")},
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -78,6 +83,12 @@ class PaymentAuthorization(Base):
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    pool_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=False,
+        server_default=text("gen_random_uuid()"),
+    )
+    pool_cap_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     provider: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -86,7 +97,7 @@ class PaymentAuthorization(Base):
     provider_customer_ref: Mapped[str | None] = mapped_column(Text)
     provider_session_ref: Mapped[str | None] = mapped_column(Text, unique=True)
     provider_session_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    provider_authorization_ref: Mapped[str | None] = mapped_column(Text, unique=True)
+    provider_authorization_ref: Mapped[str | None] = mapped_column(Text)
     funding_status: Mapped[PaymentStatus] = mapped_column(
         ENUM(
             PaymentStatus,
