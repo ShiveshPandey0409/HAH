@@ -42,7 +42,7 @@ export function IntegrationsPage() {
     <div className="page integrations-page">
       <PageHeader title="Integrations" description="Send signed task events to your backend or agent." />
       <Surface as="section" className="mcp-integration-callout rounded-lg border border-kumo-hairline p-6">
-        <span><PlugsConnected size={24} /></span><div><h2>Connect HAH to your AI app</h2><p>One command adds the MCP server. HAH login opens automatically.</p></div><Link href="/connect">Connect MCP <ArrowRight /></Link>
+        <span><PlugsConnected size={24} /></span><div><h2>Connect HAH to your AI app</h2><p>Run one command on each computer, then authenticate with the same HAH account.</p></div><Link href="/connect">Connect MCP <ArrowRight /></Link>
       </Surface>
       <div className="integration-layout">
         <Surface render={<form className="panel integration-form" onSubmit={save} />} className="rounded-lg border border-kumo-hairline p-6">
