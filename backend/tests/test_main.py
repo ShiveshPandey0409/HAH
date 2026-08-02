@@ -55,9 +55,16 @@ def test_application_factory_rejects_invalid_webhook_runtime_in_deployments(
 async def test_unknown_paths_return_404_without_mcp_authentication(
     client: AsyncClient,
 ) -> None:
-    for path in ("/", "/favicon.ico", "/v1/nonexistent", "/mcp/nonexistent"):
+    for path in ("/favicon.ico", "/v1/nonexistent", "/mcp/nonexistent"):
         response = await client.get(path)
         assert response.status_code == 404
+
+
+async def test_root_redirects_to_swagger(client: AsyncClient) -> None:
+    response = await client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
 
 
 async def test_lifespan_disposes_engine_after_application_error() -> None:

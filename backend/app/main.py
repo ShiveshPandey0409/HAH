@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -56,6 +56,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     mcp_server, mcp_http_app = create_mcp_server()
     application = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
+
+    @application.get("/", include_in_schema=False)
+    async def root_documentation() -> RedirectResponse:
+        return RedirectResponse(url="/docs", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
     application.state.mcp_server = mcp_server
     try:
         application.state.webhook_runtime = runtime_from_settings()
