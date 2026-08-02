@@ -11,7 +11,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-k
 .app-shell { min-height: 100vh; }
 .app-frame { flex: 1; min-width: 0; min-height: 100vh; }
 .topbar { height: 64px; padding: 0 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--color-kumo-hairline); background: var(--color-kumo-base); }
-.topbar > :last-child { margin-left: auto; }
+.topbar__account-trigger { margin-left: auto; }
 .app-main { min-width: 0; }
 
 .page { width: min(1180px, 100%); margin: 0 auto; padding: 40px 32px 64px; }
