@@ -1,4 +1,5 @@
-import { LoaderCircle } from 'lucide-react'
+import { Empty, LinkButton, Loader, Text } from '@cloudflare/kumo'
+import { House } from '@phosphor-icons/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { AppShell } from './components/AppShell'
@@ -15,7 +16,7 @@ import { WorkPage } from './pages/WorkPage'
 
 function ProtectedRoute() {
   const { user, loading } = useAuth()
-  if (loading) return <div className="app-loading"><LoaderCircle className="spin" /><span>Opening HAH</span></div>
+  if (loading) return <div className="app-loading"><Loader size="lg" /><Text variant="secondary">Opening HAH</Text></div>
   return user ? <AppShell /> : <Navigate to="/login" replace />
 }
 
@@ -26,7 +27,7 @@ function CapabilityRoute({ capability, children }: { capability: 'creator' | 'hu
 }
 
 function NotFound() {
-  return <div className="not-found"><strong>404</strong><h1>This page wandered off.</h1><a href="/">Back to HAH</a></div>
+  return <div className="not-found"><Empty size="lg" icon={<House size={48} />} title="This page wandered off" description="The page you requested does not exist." contents={<LinkButton href="/" variant="primary">Back to HAH</LinkButton>} /></div>
 }
 
 export default function App() {

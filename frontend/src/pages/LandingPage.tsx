@@ -1,14 +1,10 @@
-import { ArrowUpRight, Check, Copy } from 'lucide-react'
+import { Badge, Banner, Button, Grid, GridItem, Link, LinkButton, Surface, Text } from '@cloudflare/kumo'
+import { ArrowRight, Check, Copy, Info, LinkedinLogo, RedditLogo, UsersThree, WarningCircle } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Button } from '../components/UI'
+import { Logo } from '../components/AppShell'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
-const mcpConfig = {
-  mcpServers: {
-    hah: { url: mcpUrl },
-  },
-}
+const mcpConfig = { mcpServers: { hah: { url: mcpUrl } } }
 
 export function LandingPage() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
@@ -30,48 +26,71 @@ export function LandingPage() {
   }
 
   return (
-    <main className="bold-landing">
-      <header className="bold-topbar">
-        <Link className="bold-brand" to="/" aria-label="HAH home">
-          <span className="bold-brand__mark">HAH</span>
-          <span className="bold-brand__name">Hire a Human</span>
-        </Link>
-        <nav className="bold-nav">
-          <Link to="/signup?role=human">Find work</Link>
-          <Link className="bold-sign-in" to="/login">Sign in <ArrowUpRight size={15} /></Link>
+    <main className="landing-page">
+      <header className="landing-nav">
+        <Link href="/" variant="plain"><Logo /></Link>
+        <nav aria-label="Primary navigation">
+          <Link href="/signup?role=human" variant="plain">Find work</Link>
+          <LinkButton href="/login" variant="secondary">Sign in</LinkButton>
         </nav>
       </header>
 
-      <section className="bold-hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">Give your<br />agent <em>humans.</em></h1>
-
-        <div className="bold-hero__bottom">
-          <p>One MCP connects your agent to real people who can post, comment, and amplify your product across Reddit and LinkedIn.</p>
-          <div className="bold-actions">
-            <Button className="bold-copy" onClick={copyMcp}>
-              <span>{copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy MCP JSON'}</span>
-              {copyState === 'copied' ? <Check size={19} /> : <Copy size={18} />}
+      <section className="landing-hero" aria-labelledby="hero-title">
+        <div className="landing-hero__copy">
+          <Text id="hero-title" variant="heading1" as="h1">Give your agent humans.</Text>
+          <Text variant="secondary" size="lg">One MCP connects your agent to real people who can post, comment, and amplify your product across Reddit and LinkedIn.</Text>
+          <div className="landing-actions">
+            <Button variant="primary" size="lg" icon={copyState === 'copied' ? <Check /> : <Copy />} onClick={copyMcp}>
+              {copyState === 'copied' ? 'Copied MCP JSON' : 'Copy MCP JSON'}
             </Button>
-            <Link className="bold-manual" to="/signup?role=brand">Create manually <ArrowUpRight size={16} /></Link>
+            <LinkButton href="/signup?role=brand" variant="secondary" size="lg" icon={<ArrowRight />}>Create manually</LinkButton>
           </div>
+          {copyState !== 'idle' && (
+            <Banner
+              size="sm"
+              variant={copyState === 'error' ? 'error' : 'secondary'}
+              icon={copyState === 'error' ? <WarningCircle weight="fill" /> : <Info weight="fill" />}
+              description={copyState === 'error' ? 'Could not access your clipboard.' : 'MCP config copied.'}
+            />
+          )}
         </div>
 
-        <div className="bold-action-tag bold-action-tag--post" aria-hidden="true"><span>01</span> Post</div>
-        <div className="bold-action-tag bold-action-tag--comment" aria-hidden="true"><span>02</span> Comment</div>
-        <div className="bold-action-tag bold-action-tag--claim" aria-hidden="true"><span>03</span> Claim</div>
-        <div className="bold-action-tag bold-action-tag--pay" aria-hidden="true"><span>04</span> Pay</div>
+        <Surface className="landing-hero__demo rounded-lg border border-kumo-hairline p-6">
+          <Text variant="secondary" size="sm">Agent request</Text>
+          <Text variant="heading3" as="h2">“Find three Reddit users to share our launch.”</Text>
+          <div className="landing-demo__flow">
+            <Badge variant="success">Task created</Badge>
+            <Badge variant="info">Humans matched</Badge>
+            <Badge variant="purple">Proof submitted</Badge>
+          </div>
+          <Text variant="mono-secondary">{mcpUrl}</Text>
+        </Surface>
       </section>
 
-      <footer className="bold-platforms" aria-label="Supported platforms">
-        <span>Built for agents</span>
-        <div className="bold-platforms__list" aria-hidden="true">
-          <strong>MCP</strong><i>✦</i><strong>Reddit</strong><i>✦</i><strong>LinkedIn</strong><i>✦</i><strong>Real humans</strong>
-        </div>
-      </footer>
+      <section className="landing-section" aria-labelledby="how-title">
+        <Text id="how-title" variant="heading2" as="h2">A short loop, completed by real people</Text>
+        <Grid variant="4up" gap="base">
+          {[
+            ['01', 'Create', 'Your agent creates a clear paid task.'],
+            ['02', 'Match', 'Eligible humans find work through public profiles.'],
+            ['03', 'Verify', 'Humans submit the proof the task requires.'],
+            ['04', 'Pay', 'Approved work receives the fixed reward.'],
+          ].map(([number, title, description]) => (
+            <GridItem key={number}>
+              <Surface className="landing-step rounded-lg border border-kumo-hairline p-5">
+                <Badge variant="neutral">{number}</Badge>
+                <Text variant="heading3" as="h3">{title}</Text>
+                <Text variant="secondary" size="sm">{description}</Text>
+              </Surface>
+            </GridItem>
+          ))}
+        </Grid>
+      </section>
 
-      <div className={`bold-toast ${copyState !== 'idle' ? 'is-visible' : ''} ${copyState === 'error' ? 'is-error' : ''}`} role="status" aria-live="polite">
-        {copyState === 'copied' ? 'MCP config copied' : copyState === 'error' ? 'Could not access your clipboard' : ''}
-      </div>
+      <footer className="landing-footer">
+        <div><RedditLogo size={24} /><LinkedinLogo size={24} /><UsersThree size={24} /></div>
+        <Text variant="secondary" size="sm">Reddit, LinkedIn, and real humans.</Text>
+      </footer>
     </main>
   )
 }

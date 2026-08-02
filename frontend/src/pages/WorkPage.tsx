@@ -1,7 +1,8 @@
-import { ArrowRight, CheckCircle2, ClipboardCheck, Clock3, ExternalLink, FileCheck2, Send, UploadCloud } from 'lucide-react'
+import { Button, Empty, Field, Input, Link, LinkButton, Surface } from '@cloudflare/kumo'
+import { ArrowRight, ArrowSquareOut, CheckCircle, ClipboardText, Clock, FileText, PaperPlaneTilt, UploadSimple } from '@phosphor-icons/react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { Badge, Button, EmptyState, Field, Input, Modal, Notice, PageHeader } from '../components/UI'
+import { Modal, Notice, PageHeader, StatusBadge } from '../components/UI'
 import { api } from '../lib/api'
 import { date, localClaims, money, titleCase } from '../lib/utils'
 import type { LocalClaim, ProofType, SubmissionProof } from '../types'
@@ -42,21 +43,21 @@ export function WorkPage() {
       {claims.length ? (
         <div className="work-list">
           {claims.map((claim) => (
-            <article className="work-row" key={claim.id}>
+            <Surface as="article" className="work-row rounded-lg border border-kumo-hairline p-5" key={claim.id}>
               <span className={`platform-icon platform-icon--${claim.platform}`}>{claim.platform === 'reddit' ? 'r/' : 'in'}</span>
-              <div className="work-row__body"><div><Badge tone={claim.submission ? (claim.submission.verification_status === 'passed' ? 'positive' : claim.submission.verification_status === 'failed' ? 'danger' : 'warning') : 'accent'}>{claim.submission ? titleCase(claim.submission.verification_status) : titleCase(claim.status)}</Badge><small>Claimed {date(claim.claimed_at, '')}</small></div><h2>{claim.bounty?.bounty_title ?? `Bounty ${claim.bounty_id.slice(0, 8)}`}</h2><p>{claim.bounty?.task_title ?? 'Claimed work'}</p></div>
+              <div className="work-row__body"><div><StatusBadge tone={claim.submission ? (claim.submission.verification_status === 'passed' ? 'positive' : claim.submission.verification_status === 'failed' ? 'danger' : 'warning') : 'accent'}>{claim.submission ? titleCase(claim.submission.verification_status) : titleCase(claim.status)}</StatusBadge><small>Claimed {date(claim.claimed_at, '')}</small></div><h2>{claim.bounty?.bounty_title ?? `Bounty ${claim.bounty_id.slice(0, 8)}`}</h2><p>{claim.bounty?.task_title ?? 'Claimed work'}</p></div>
               <div className="work-row__reward"><strong>{money(claim.reward_minor, claim.currency)}</strong><span>fixed reward</span></div>
-              {claim.submission ? <Button variant="secondary" onClick={() => setSelected(claim)}><FileCheck2 size={16} /> View proof</Button> : <Button onClick={() => openProof(claim)}><UploadCloud size={16} /> Submit proof</Button>}
-            </article>
+              {claim.submission ? <Button variant="secondary" icon={<FileText />} onClick={() => setSelected(claim)}>View proof</Button> : <Button variant="primary" icon={<UploadSimple />} onClick={() => openProof(claim)}>Submit proof</Button>}
+            </Surface>
           ))}
         </div>
-      ) : <EmptyState icon={<ClipboardCheck size={23} />} title="No active work yet" body="Claim a bounty from Find work. It will appear here with the exact proof requirements." action={<a href="/app/marketplace"><Button>Find work <ArrowRight size={16} /></Button></a>} />}
+      ) : <Empty icon={<ClipboardText size={40} />} title="No active work yet" description="Claim a bounty from Find work. It will appear here with the exact proof requirements." contents={<LinkButton href="/app/marketplace" variant="primary" icon={<ArrowRight />}>Find work</LinkButton>} />}
       <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.submission ? 'Submission details' : 'Submit your work'}>
         {selected && (selected.submission ? (
           <div className="submission-detail">
-            <div className="submission-detail__status"><span className={`status-orb status-orb--${selected.submission.verification_status}`}>{selected.submission.verification_status === 'passed' ? <CheckCircle2 size={24} /> : <Clock3 size={24} />}</span><div><h3>{titleCase(selected.submission.verification_status)}</h3><p>Revision {selected.submission.revision} · Submitted {date(selected.submission.submitted_at, '')}</p></div></div>
+            <div className="submission-detail__status"><span className={`status-orb status-orb--${selected.submission.verification_status}`}>{selected.submission.verification_status === 'passed' ? <CheckCircle size={24} /> : <Clock size={24} />}</span><div><h3>{titleCase(selected.submission.verification_status)}</h3><p>Revision {selected.submission.revision} · Submitted {date(selected.submission.submitted_at, '')}</p></div></div>
             {selected.submission.failure_reason && <Notice tone="error">{selected.submission.failure_reason}</Notice>}
-            <div className="proof-list">{selected.submission.proofs.map((proof) => <div key={proof.id ?? proof.proof_type}><span>{titleCase(proof.proof_type)}</span>{proof.url ? <a href={proof.url} target="_blank" rel="noreferrer">Open proof <ExternalLink size={14} /></a> : <code>{proof.storage_key}</code>}</div>)}</div>
+            <div className="proof-list">{selected.submission.proofs.map((proof) => <div key={proof.id ?? proof.proof_type}><span>{titleCase(proof.proof_type)}</span>{proof.url ? <Link href={proof.url} target="_blank" rel="noreferrer">Open proof <ArrowSquareOut size={14} /></Link> : <code>{proof.storage_key}</code>}</div>)}</div>
             <div className="id-box"><span>Submission ID</span><code>{selected.submission.id}</code><small>Share this with the creator if they review manually.</small></div>
           </div>
         ) : (
@@ -66,10 +67,10 @@ export function WorkPage() {
             {(selected.bounty?.proof_requirements ?? ['url']).map((proof) => proof === 'url' ? (
               <Field key={proof} label="Public post or comment URL"><Input type="url" value={proofs.url} onChange={(e) => setProofs((value) => ({ ...value, url: e.target.value }))} placeholder="https://…" required /></Field>
             ) : (
-              <Field key={proof} label={`${titleCase(proof)} storage key`} hint="Use the key returned by your configured file storage uploader."><Input value={proofs[proof]} onChange={(e) => setProofs((value) => ({ ...value, [proof]: e.target.value }))} placeholder={`proof/${selected.id}/${proof}.png`} required /></Field>
+              <Field key={proof} label={`${titleCase(proof)} storage key`} description="Use the key returned by your configured file storage uploader."><Input value={proofs[proof]} onChange={(e) => setProofs((value) => ({ ...value, [proof]: e.target.value }))} placeholder={`proof/${selected.id}/${proof}.png`} required /></Field>
             ))}
             <Notice>File upload is not exposed by the current API. Image proofs require an existing object-storage key.</Notice>
-            <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button><Button type="submit" loading={loading}><Send size={16} /> Submit proof</Button></div>
+            <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button><Button type="submit" variant="primary" loading={loading} icon={<PaperPlaneTilt />}>Submit proof</Button></div>
           </form>
         ))}
       </Modal>

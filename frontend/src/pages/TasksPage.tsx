@@ -1,7 +1,8 @@
-import { ArrowLeft, ArrowRight, CalendarDays, Copy, FilePlus2, MoreHorizontal, Pencil, Plus, Rocket, Trash2, UsersRound } from 'lucide-react'
+import { Button, Checkbox, Empty, Field, Input, InputArea, Link, LinkButton, Loader, Meter, Select, Surface, Tabs } from '@cloudflare/kumo'
+import { ArrowLeft, ArrowRight, Calendar, Copy, FilePlus, Pencil, Plus, Rocket, Trash, Users } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, EmptyState, Field, Input, Notice, PageHeader, Select, Skeleton, Textarea } from '../components/UI'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Notice, PageHeader, StatusBadge } from '../components/UI'
 import { api } from '../lib/api'
 import { date, money, titleCase, toIso, toLocalInput } from '../lib/utils'
 import type { Bounty, BountyInput, Platform, ProofType, Task, TaskInput } from '../types'
@@ -61,15 +62,13 @@ export function TasksPage() {
 
   return (
     <div className="page">
-      <PageHeader title="My tasks" description="Build, publish, and track human work." action={<Link to="/app/tasks/new"><Button><Plus size={17} /> New task</Button></Link>} />
-      <div className="filter-bar">
-        {['all', 'draft', 'open', 'completed'].map((item) => <button key={item} className={filter === item ? 'is-active' : ''} onClick={() => setFilter(item)}>{titleCase(item)} <span>{item === 'all' ? tasks.length : tasks.filter((task) => task.status === item).length}</span></button>)}
-      </div>
-      {loading ? <div className="task-list"><Skeleton className="skeleton--task" /><Skeleton className="skeleton--task" /></div> : visible.length ? (
+      <PageHeader title="My tasks" description="Build, publish, and track human work." action={<LinkButton href="/app/tasks/new" variant="primary" icon={<Plus />}>New task</LinkButton>} />
+      <Tabs value={filter} onValueChange={setFilter} tabs={['all', 'draft', 'open', 'completed'].map((item) => ({ value: item, label: `${titleCase(item)} (${item === 'all' ? tasks.length : tasks.filter((task) => task.status === item).length})` }))} />
+      {loading ? <div className="loading-state"><Loader size="lg" /></div> : visible.length ? (
         <div className="task-list">
           {visible.map((task) => <TaskRow task={task} key={task.id} />)}
         </div>
-      ) : <EmptyState icon={<FilePlus2 size={23} />} title={tasks.length ? `No ${filter} tasks` : 'No tasks yet'} body={tasks.length ? 'Try another status.' : 'Create a campaign with one or more paid bounties.'} action={!tasks.length ? <Link to="/app/tasks/new"><Button>Create your first task</Button></Link> : undefined} />}
+      ) : <Empty icon={<FilePlus size={40} />} title={tasks.length ? `No ${filter} tasks` : 'No tasks yet'} description={tasks.length ? 'Try another status.' : 'Create a campaign with one or more paid bounties.'} contents={!tasks.length ? <LinkButton href="/app/tasks/new" variant="primary">Create your first task</LinkButton> : undefined} />}
     </div>
   )
 }
@@ -77,14 +76,14 @@ export function TasksPage() {
 function TaskRow({ task }: { task: Task }) {
   const claims = task.bounties.reduce((sum, bounty) => sum + bounty.claim_count, 0)
   return (
-    <Link to={`/app/tasks/${task.id}`} className="task-row">
-      <div className="task-row__top"><Badge tone={task.status === 'open' ? 'positive' : task.status === 'draft' ? 'warning' : 'neutral'}>{titleCase(task.status)}</Badge><span>{task.created_via === 'mcp' ? 'Created by agent' : 'Created manually'}</span></div>
+    <Link href={`/app/tasks/${task.id}`} variant="plain" className="task-row">
+      <div className="task-row__top"><StatusBadge tone={task.status === 'open' ? 'positive' : task.status === 'draft' ? 'warning' : 'neutral'}>{titleCase(task.status)}</StatusBadge><span>{task.created_via === 'mcp' ? 'Created by agent' : 'Created manually'}</span></div>
       <div className="task-row__main"><div><h2>{task.title}</h2><p>{task.description}</p></div><ArrowRight size={19} /></div>
       <div className="task-row__meta">
         <span><strong>{task.bounties.length}</strong> bounties</span>
         <span><strong>{claims}</strong> claims</span>
         <span><strong>{money(task.allocated_budget_minor, task.currency)}</strong> committed</span>
-        <span><CalendarDays size={15} /> {date(task.deadline_at)}</span>
+        <span><Calendar size={15} /> {date(task.deadline_at)}</span>
       </div>
     </Link>
   )
@@ -110,17 +109,17 @@ export function TaskDetailPage() {
     try { await api.deleteTask(task.id); navigate('/app/tasks') } catch (e) { setError(e instanceof Error ? e.message : 'Could not delete task'); setBusy('') }
   }
 
-  if (loading) return <div className="page"><Skeleton className="skeleton--hero" /><Skeleton className="skeleton--task" /></div>
+  if (loading) return <div className="page loading-state"><Loader size="lg" /></div>
   if (!task) return <div className="page"><Notice tone="error">{error || 'Task not found'}</Notice></div>
 
   return (
     <div className="page task-detail">
-      <Link to="/app/tasks" className="back-link"><ArrowLeft size={16} /> All tasks</Link>
+      <Link href="/app/tasks" variant="plain"><ArrowLeft size={16} /> All tasks</Link>
       {error && <Notice tone="error">{error}</Notice>}
       <header className="task-detail__header">
-        <div><div className="task-detail__badges"><Badge tone={task.status === 'open' ? 'positive' : 'warning'}>{titleCase(task.status)}</Badge><Badge>{task.created_via === 'mcp' ? 'Agent-created' : 'Manual'}</Badge></div><h1>{task.title}</h1><p>{task.description}</p></div>
+        <div><div className="task-detail__badges"><StatusBadge tone={task.status === 'open' ? 'positive' : 'warning'}>{titleCase(task.status)}</StatusBadge><StatusBadge>{task.created_via === 'mcp' ? 'Agent-created' : 'Manual'}</StatusBadge></div><h1>{task.title}</h1><p>{task.description}</p></div>
         <div className="task-detail__actions">
-          {task.status === 'draft' && <><Link to={`/app/tasks/${task.id}/edit`}><Button variant="secondary"><Pencil size={16} /> Edit</Button></Link><Button loading={busy === 'open'} onClick={open}><Rocket size={16} /> Publish task</Button><Button variant="ghost" loading={busy === 'delete'} onClick={remove} aria-label="Delete task"><Trash2 size={17} /></Button></>}
+          {task.status === 'draft' && <><LinkButton href={`/app/tasks/${task.id}/edit`} variant="secondary" icon={<Pencil />}>Edit</LinkButton><Button variant="primary" loading={busy === 'open'} icon={<Rocket />} onClick={open}>Publish task</Button><Button variant="secondary-destructive" shape="square" icon={<Trash />} loading={busy === 'delete'} onClick={remove} aria-label="Delete task" /></>}
         </div>
       </header>
       <div className="task-summary">
@@ -139,19 +138,19 @@ export function TaskDetailPage() {
 
 function BountyDetail({ bounty, currency }: { bounty: Bounty; currency: string }) {
   return (
-    <article className="bounty-detail">
+    <Surface as="article" className="bounty-detail rounded-lg border border-kumo-hairline p-5">
       <div className="bounty-detail__rail"><span className={`platform-icon platform-icon--${bounty.platform}`}>{bounty.platform === 'reddit' ? 'r/' : 'in'}</span><span className="bounty-detail__connector" /></div>
       <div className="bounty-detail__body">
         <div className="bounty-detail__heading"><div><span>{titleCase(bounty.platform)} · {titleCase(bounty.action)}</span><h3>{bounty.title}</h3></div><strong>{money(bounty.reward_minor, currency)} <small>/ person</small></strong></div>
         <p>{bounty.instructions}</p>
         <div className="bounty-detail__facts">
-          <span><UsersRound size={16} /> {bounty.claim_count} claimed · {bounty.remaining_slots} left</span>
+          <span><Users size={16} /> {bounty.claim_count} claimed · {bounty.remaining_slots} left</span>
           <span>{titleCase(bounty.influence_metric)}: {bounty.min_influence.toLocaleString()}–{bounty.max_influence?.toLocaleString() ?? 'any'}</span>
           <span>Proof: {bounty.proof_requirements.map(titleCase).join(', ')}</span>
           <span>{date(bounty.deadline_at, 'Uses campaign deadline')}</span>
         </div>
       </div>
-    </article>
+    </Surface>
   )
 }
 
@@ -204,10 +203,10 @@ export function TaskEditorPage() {
     finally { setSaving(false) }
   }
 
-  if (loading) return <div className="page"><Skeleton className="skeleton--hero" /><Skeleton className="skeleton--task" /></div>
+  if (loading) return <div className="page loading-state"><Loader size="lg" /></div>
   return (
     <div className="page editor-page">
-      <Link to={taskId ? `/app/tasks/${taskId}` : '/app/tasks'} className="back-link"><ArrowLeft size={16} /> {taskId ? 'Back to task' : 'Cancel'}</Link>
+      <Link href={taskId ? `/app/tasks/${taskId}` : '/app/tasks'} variant="plain"><ArrowLeft size={16} /> {taskId ? 'Back to task' : 'Cancel'}</Link>
       <PageHeader title={editing ? 'Edit task' : 'Create a task'} description="One campaign can contain multiple paid bounties." />
       {error && <Notice tone="error">{error}</Notice>}
       <form onSubmit={submit} className="editor-layout">
@@ -215,11 +214,11 @@ export function TaskEditorPage() {
           <section className="form-section">
             <div className="form-section__heading"><span>1</span><div><h2>Campaign brief</h2><p>What are humans helping you promote?</p></div></div>
             <Field label="Task title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Launch HAH to indie builders" required autoFocus /></Field>
-            <Field label="Description"><Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Give people the context they need to understand the campaign." rows={4} required /></Field>
+            <Field label="Description"><InputArea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Give people the context they need to understand the campaign." rows={4} required /></Field>
             <div className="form-grid form-grid--3">
               <Field label="Total budget"><Input type="number" min="0.01" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} required /></Field>
               <Field label="Currency"><Input value={currency} maxLength={3} onChange={(e) => setCurrency(e.target.value.toUpperCase())} required /></Field>
-              <Field label="Campaign deadline" hint="Optional"><Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></Field>
+              <Field label="Campaign deadline" required={false}><Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></Field>
             </div>
           </section>
           <section className="form-section">
@@ -229,19 +228,19 @@ export function TaskEditorPage() {
                 <BountyEditor key={index} bounty={bounty} index={index} update={updateBounty} toggleProof={toggleProof} duplicate={duplicate} remove={() => setBounties((items) => items.filter((_, itemIndex) => itemIndex !== index))} canRemove={bounties.length > 1} />
               ))}
             </div>
-            <Button type="button" variant="secondary" onClick={() => setBounties((items) => [...items, emptyBounty()])}><Plus size={17} /> Add another bounty</Button>
+            <Button type="button" variant="secondary" icon={<Plus />} onClick={() => setBounties((items) => [...items, emptyBounty()])}>Add another bounty</Button>
           </section>
         </div>
-        <aside className="editor-summary">
+        <Surface as="aside" className="editor-summary rounded-lg border border-kumo-hairline p-5">
           <h2>Budget check</h2>
           <div><span>Total budget</span><strong>{money(Math.round(Number(budget || 0) * 100), currency)}</strong></div>
           <div><span>Bounties</span><strong>{money(Math.round(allocated * 100), currency)}</strong></div>
           <div className={allocated > Number(budget) ? 'is-over' : ''}><span>Unallocated</span><strong>{money(Math.round((Number(budget || 0) - allocated) * 100), currency)}</strong></div>
-          <div className="budget-meter"><span style={{ width: `${Math.min(100, budget ? (allocated / Number(budget)) * 100 : 0)}%` }} /></div>
+          <Meter label="Budget allocated" value={allocated} max={Number(budget) || 1} customValue={`${Math.round(Math.min(100, budget ? (allocated / Number(budget)) * 100 : 0))}%`} />
           {allocated > Number(budget) && <small className="editor-summary__error">Bounties exceed the task budget.</small>}
-          <Button type="submit" loading={saving} disabled={allocated > Number(budget) || bounties.some((bounty) => !bounty.proof_requirements.length)}>Save draft <ArrowRight size={17} /></Button>
+          <Button type="submit" variant="primary" icon={<ArrowRight />} loading={saving} disabled={allocated > Number(budget) || bounties.some((bounty) => !bounty.proof_requirements.length)}>Save draft</Button>
           <p>Drafts are private until you publish them.</p>
-        </aside>
+        </Surface>
       </form>
     </div>
   )
@@ -257,26 +256,28 @@ function BountyEditor({ bounty, index, update, toggleProof, duplicate, remove, c
   canRemove: boolean
 }) {
   return (
-    <fieldset className="bounty-editor">
+    <Surface render={<fieldset className="bounty-editor" />} className="rounded-lg border border-kumo-hairline p-5">
       <legend>Bounty {index + 1}</legend>
-      <div className="bounty-editor__tools"><button type="button" onClick={() => duplicate(index)}><Copy size={15} /> Duplicate</button>{canRemove && <button type="button" onClick={remove}><Trash2 size={15} /> Remove</button>}<MoreHorizontal size={17} /></div>
+      <div className="bounty-editor__tools"><Button type="button" size="sm" variant="ghost" icon={<Copy />} onClick={() => duplicate(index)}>Duplicate</Button>{canRemove && <Button type="button" size="sm" variant="secondary-destructive" icon={<Trash />} onClick={remove}>Remove</Button>}</div>
       <div className="form-grid form-grid--2">
-        <Field label="Platform"><Select value={bounty.platform} onChange={(e) => { const platform = e.target.value as Platform; update(index, 'platform', platform); if (platform === 'linkedin') update(index, 'influence_metric', 'followers') }}><option value="reddit">Reddit</option><option value="linkedin">LinkedIn</option></Select></Field>
-        <Field label="Action"><Select value={bounty.action} onChange={(e) => update(index, 'action', e.target.value as 'post' | 'comment')}><option value="post">Create a post</option><option value="comment">Add a comment</option></Select></Field>
+        <Select label="Platform" value={bounty.platform} onValueChange={(value) => { const platform = value as Platform; update(index, 'platform', platform); if (platform === 'linkedin') update(index, 'influence_metric', 'followers') }} items={{ reddit: 'Reddit', linkedin: 'LinkedIn' }} />
+        <Select label="Action" value={bounty.action} onValueChange={(value) => update(index, 'action', value as 'post' | 'comment')} items={{ post: 'Create a post', comment: 'Add a comment' }} />
       </div>
       <Field label="Bounty title"><Input value={bounty.title} onChange={(e) => update(index, 'title', e.target.value)} placeholder="Share our launch story" required /></Field>
-      <Field label="Instructions"><Textarea value={bounty.instructions} onChange={(e) => update(index, 'instructions', e.target.value)} placeholder="Say what good work looks like. Keep it specific." rows={4} required /></Field>
+      <Field label="Instructions"><InputArea value={bounty.instructions} onChange={(e) => update(index, 'instructions', e.target.value)} placeholder="Say what good work looks like. Keep it specific." rows={4} required /></Field>
       <div className="form-grid form-grid--3">
         <Field label="Reward per person"><Input type="number" min="0.01" step="0.01" value={bounty.reward} onChange={(e) => update(index, 'reward', e.target.value)} required /></Field>
         <Field label="Available spots"><Input type="number" min="1" value={bounty.slot_count} onChange={(e) => update(index, 'slot_count', e.target.value)} required /></Field>
-        <Field label="Bounty deadline" hint="Optional"><Input type="datetime-local" value={bounty.deadline_at} onChange={(e) => update(index, 'deadline_at', e.target.value)} /></Field>
+        <Field label="Bounty deadline" required={false}><Input type="datetime-local" value={bounty.deadline_at} onChange={(e) => update(index, 'deadline_at', e.target.value)} /></Field>
       </div>
       <div className="form-grid form-grid--3">
-        <Field label="Audience metric"><Select value={bounty.platform === 'linkedin' ? 'followers' : bounty.influence_metric} disabled={bounty.platform === 'linkedin'} onChange={(e) => update(index, 'influence_metric', e.target.value as 'followers' | 'karma')}><option value="followers">Followers</option>{bounty.platform === 'reddit' && <option value="karma">Reddit karma</option>}</Select></Field>
+        <Select label="Audience metric" value={bounty.platform === 'linkedin' ? 'followers' : bounty.influence_metric} disabled={bounty.platform === 'linkedin'} onValueChange={(value) => update(index, 'influence_metric', value as 'followers' | 'karma')} items={bounty.platform === 'reddit' ? { followers: 'Followers', karma: 'Reddit karma' } : { followers: 'Followers' }} />
         <Field label="Minimum"><Input type="number" min="0" value={bounty.min_influence} onChange={(e) => update(index, 'min_influence', e.target.value)} required /></Field>
-        <Field label="Maximum" hint="Optional"><Input type="number" min="0" value={bounty.max_influence} onChange={(e) => update(index, 'max_influence', e.target.value)} /></Field>
+        <Field label="Maximum" required={false}><Input type="number" min="0" value={bounty.max_influence} onChange={(e) => update(index, 'max_influence', e.target.value)} /></Field>
       </div>
-      <div className="field"><span className="field__label">Required proof</span><div className="check-row">{(['url', 'screenshot', 'image'] as ProofType[]).map((proof) => <label key={proof} className={bounty.proof_requirements.includes(proof) ? 'check-chip is-checked' : 'check-chip'}><input type="checkbox" checked={bounty.proof_requirements.includes(proof)} onChange={() => toggleProof(index, proof)} /><span>{titleCase(proof)}</span></label>)}</div>{!bounty.proof_requirements.length && <span className="field__error">Select at least one proof type.</span>}</div>
-    </fieldset>
+      <Checkbox.Group legend="Required proof" value={bounty.proof_requirements} allValues={['url', 'screenshot', 'image']} error={!bounty.proof_requirements.length ? 'Select at least one proof type.' : undefined}>
+        {(['url', 'screenshot', 'image'] as ProofType[]).map((proof) => <Checkbox key={proof} label={titleCase(proof)} checked={bounty.proof_requirements.includes(proof)} onCheckedChange={() => toggleProof(index, proof)} />)}
+      </Checkbox.Group>
+    </Surface>
   )
 }
