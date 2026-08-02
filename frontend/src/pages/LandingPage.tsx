@@ -1,31 +1,12 @@
-import { Button, Link, LinkButton } from '@cloudflare/kumo'
-import { Check, CheckCircle, Copy, Sparkle, UsersThree } from '@phosphor-icons/react'
-import { useEffect, useRef, useState } from 'react'
+import { ClipboardText, Link, LinkButton } from '@cloudflare/kumo'
+import { CheckCircle, Sparkle, UsersThree } from '@phosphor-icons/react'
 import portraitUrl from '../../girl-for-landing-page.png'
 import avatarUrl from '../../human-avatar.png'
 
 const mcpUrl = import.meta.env.VITE_MCP_URL || 'http://localhost:8000/mcp'
-const mcpConfig = { mcpServers: { hah: { url: mcpUrl } } }
-const mcpJson = JSON.stringify(mcpConfig, null, 2)
+const mcpInstallCommand = `npx add-mcp ${mcpUrl}`
 
 export function LandingPage() {
-  const [copied, setCopied] = useState(false)
-  const resetTimer = useRef<number | null>(null)
-
-  useEffect(() => () => {
-    if (resetTimer.current) window.clearTimeout(resetTimer.current)
-  }, [])
-
-  const copyMcp = async () => {
-    if (resetTimer.current) window.clearTimeout(resetTimer.current)
-    try {
-      await navigator.clipboard.writeText(mcpJson)
-      setCopied(true)
-      resetTimer.current = window.setTimeout(() => setCopied(false), 2200)
-    } catch {
-      setCopied(false)
-    }
-  }
 
   return (
     <main className="landing-page">
@@ -57,15 +38,12 @@ export function LandingPage() {
           </p>
 
           <div className="landing-actions">
-            <Button
-              type="button"
-              variant="primary"
+            <ClipboardText
+              className="landing-command"
+              text={mcpInstallCommand}
               size="lg"
-              icon={copied ? <Check /> : <Copy />}
-              onClick={copyMcp}
-            >
-              {copied ? 'Copied MCP JSON' : 'Copy MCP JSON'}
-            </Button>
+              tooltip={{ text: 'Copy command', copiedText: 'Copied!', side: 'top' }}
+            />
 
             <div className="landing-mobile-signup">
               <Link href="/signup?role=brand" variant="plain">Sign up as brand</Link>
