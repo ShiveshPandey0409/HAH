@@ -489,6 +489,7 @@ class FirstPartyOAuthProvider(
                     error="access_denied",
                     error_description="The user denied the OAuth request",
                     state=auth_request.state,
+                    iss=self.issuer,
                 ),
                 status_code=302,
                 headers={"Cache-Control": "no-store"},

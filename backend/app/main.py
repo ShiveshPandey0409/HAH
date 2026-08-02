@@ -122,7 +122,11 @@ def create_app() -> FastAPI:
                 ],
                 "introspection_endpoint_auth_methods_supported": ["client_secret_basic"],
                 "code_challenge_methods_supported": ["S256"],
-                "authorization_response_iss_parameter_supported": True,
+                # Codex currently drops ``iss`` while relaying its localhost OAuth
+                # callback, then rejects the response when this capability is
+                # advertised. Keep sending ``iss`` in authorization responses, but
+                # do not make it mandatory for affected Codex clients.
+                "authorization_response_iss_parameter_supported": False,
             },
             headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
         )

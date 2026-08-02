@@ -69,6 +69,7 @@ async def test_metadata_registration_and_full_pkce_token_lifecycle(
     assert metadata.json()["token_endpoint"] == "http://localhost:9000/token"
     assert metadata.json()["registration_endpoint"] == "http://localhost:9000/register"
     assert metadata.json()["code_challenge_methods_supported"] == ["S256"]
+    assert metadata.json()["authorization_response_iss_parameter_supported"] is False
 
     signup = await client.post(
         "/v1/auth/signup",
@@ -95,6 +96,18 @@ async def test_metadata_registration_and_full_pkce_token_lifecycle(
     assert stored_client.client_secret_ciphertext is not None
     assert client_secret.encode() not in stored_client.client_secret_ciphertext
     assert "client_secret" not in stored_client.client_metadata
+
+    denied_handle = await _authorize(client, client_id, state="state-denied")
+    denied = await client.post(
+        "/oauth/consent",
+        data={"request": denied_handle, "action": "deny"},
+        follow_redirects=False,
+    )
+    assert denied.status_code == 302
+    denied_query = parse_qs(urlparse(denied.headers["location"]).query)
+    assert denied_query["error"] == ["access_denied"]
+    assert denied_query["state"] == ["state-denied"]
+    assert denied_query["iss"] == ["http://localhost:9000/"]
 
     request_handle = await _authorize(client, client_id, state="state-one")
     consent = await client.get("/oauth/consent", params={"request": request_handle})
